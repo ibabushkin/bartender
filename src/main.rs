@@ -8,6 +8,8 @@ use getopts::Options;
 use std::env;
 use std::path::Path;
 
+pub mod types;
+
 fn main() {
     // options parsing
     let args: Vec<String> = env::args().collect();

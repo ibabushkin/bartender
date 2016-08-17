@@ -1,0 +1,14 @@
+format = "{entry_a} {entry_b} - and some static stuff";
+
+// this is a timer entry
+entry_a = {
+    type = "timer";
+    seconds = 2;
+    command_path = "~/dotfiles/timer_a.sh";
+};
+
+// this is a FIFO entry
+entry_b = {
+    type = "fifo";
+    fifo_path = "~/tmp/entry_b_fifo";
+};
