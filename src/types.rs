@@ -1,23 +1,37 @@
+//! Configuration Parser module.
+//!
+//! Presents types and functions to read in, represent and interpret data
+//! found in configuration files for the software.
 use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
 use std::path::{Path,PathBuf};
 
+/// Configuration data.
+///
+/// Holds a number of input sources as well as an output buffer.
 #[derive(Debug)]
 pub struct Configuration {
+    /// output buffer
     buffer: Buffer,
+    /// all timer sources
     timers: Vec<(usize, Timer)>,
+    /// all FIFO sources
     fifos: Vec<(usize, Fifo)>,
 }
 
 impl Configuration {
+    /// Parse a config file and return a result.
     pub fn from_config_file(file: &Path) -> ConfigResult<Configuration> {
+        // attempt to parse configuration file
         let cfg = try!(parse_config_file(file));
 
+        // variables used for temporary storage and buildup of values
         let mut format_string = Vec::new();
         let mut entries = Vec::new();
 
+        // parse format information from config file
         let format =
             if let Some(&Value::List(ref l)) = cfg.lookup("format") {
                 l
@@ -25,6 +39,7 @@ impl Configuration {
                 return Err(ConfigurationError::MissingFormat);
             };
 
+        // iterate over format entries and store them
         for entry in format {
             match entry {
                 &Value::Svalue(ScalarValue::Str(ref s)) =>
@@ -43,9 +58,11 @@ impl Configuration {
             }
         }
 
+        // more buildup variables
         let mut timers = Vec::new();
         let mut fifos = Vec::new();
 
+        // build up the sources
         for (ref name, index) in entries {
             let t = try!(get_child(&cfg, &name, "type"));
             if t == "timer" {
@@ -66,25 +83,34 @@ impl Configuration {
             }
         }
 
+        // return the results
         Ok(Configuration {
-            buffer: Buffer { entries: format_string },
+            buffer: Buffer { format: format_string },
             timers: timers,
             fifos: fifos,
         })
     }
 }
 
+/// An error that occured during setup.
 #[derive(Debug)]
 pub enum ConfigurationError {
+    /// The file could not be parsed.
     ParsingError(ConfigError),
+    /// No format is specified in file.
     MissingFormat,
+    /// The format is malformatted (what irony).
     IllegalFormat,
+    /// A nested entry is missing a child.
     MissingChild(String, String),
+    /// A `type` value of a nested entry has an illegal value.
     IllegalType(String),
 }
 
+/// Result wrapper.
 pub type ConfigResult<T> = Result<T, ConfigurationError>;
 
+/// Parse a configuration file - helper.
 fn parse_config_file(file: &Path) -> ConfigResult<Config> {
     match from_file(file) {
         Ok(cfg) => Ok(cfg),
@@ -92,6 +118,7 @@ fn parse_config_file(file: &Path) -> ConfigResult<Config> {
     }
 }
 
+/// Get a child element from a nested entry - helper.
 fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
     -> ConfigResult<&'a str> {
     if let Some(value) =
@@ -105,22 +132,26 @@ fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
     }
 }
 
+/// Get a `seconds` value from a nested entry - helper.
 fn get_seconds(cfg: &Config, name: &str) -> u32 {
     cfg.lookup_integer32_or(format!("{}.seconds", name).as_str(), 1) as u32
 }
 
+/// A timer source.
 #[derive(Debug)]
 pub struct Timer {
     seconds: u32,
     command: PathBuf,
 }
 
+/// A FIFO source.
 #[derive(Debug)]
 pub struct Fifo {
     path: PathBuf,
 }
 
+/// An Output buffer.
 #[derive(Debug)]
 pub struct Buffer {
-    entries: Vec<String>,
+    format: Vec<String>,
 }

@@ -10,6 +10,10 @@ pub mod types;
 
 use types::Configuration;
 
+/// Main function.
+///
+/// Read in command line arguments, parse options and configuration file.
+/// Then run the deamon according to the configuration data found.
 fn main() {
     // collect CLI args
     let args: Vec<String> = env::args().collect();
