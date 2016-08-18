@@ -36,7 +36,7 @@ fn main() {
 
     // obtain and parse config file
     let config = if let Some(path) = matches.opt_str("c") {
-        Configuration::from_config_file(&Path::new(path.as_str()))
+        Configuration::from_config_file(Path::new(path.as_str()))
     } else if let Some(mut dir) = env::home_dir() {
         dir.push(".bartenderrc");
         match dir.canonicalize() {

@@ -41,13 +41,13 @@ impl Configuration {
 
         // iterate over format entries and store them
         for entry in format {
-            match entry {
-                &Value::Svalue(ScalarValue::Str(ref s)) =>
+            match *entry {
+                Value::Svalue(ScalarValue::Str(ref s)) =>
                     format_string.push(s.clone()),
-                &Value::Group(ref s) =>
+                Value::Group(ref s) =>
                     if let Some(&Setting {
-                            name: _,
                             value: Value::Svalue(ScalarValue::Str(ref name)),
+                            ..
                         }) = s.get("name") {
                         entries.push((name.clone(), format_string.len()));
                         format_string.push(String::new());
@@ -68,7 +68,7 @@ impl Configuration {
             if t == "timer" {
                 let path = try!(get_child(&cfg, &name, "command_path"));
                 timers.push((index, Timer {
-                    seconds: get_seconds(&cfg, &name),
+                    seconds: get_seconds(&cfg, name),
                     command: PathBuf::from(path),
                 }));
             } else if t == "fifo" {
