@@ -24,3 +24,7 @@ name = "nom"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
+[metadata]
+"checksum config 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "90acbe23921c3b07226a6679befa9e906be58a5c7f9691b2f646e064949f23cc"
+"checksum getopts 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)" = "d9047cfbd08a437050b363d35ef160452c5fe8ea5187ae0a624708c91581d685"
+"checksum nom 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "fb98ecbcf8158734a40bd61c81766a3bf583949d37d089d2fe800c886d84f0c8"

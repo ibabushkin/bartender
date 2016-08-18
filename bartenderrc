@@ -1,4 +1,13 @@
-format = "{entry_a} {entry_b} - and some static stuff";
+format = (
+    {
+        name = "entry_a";
+    },
+    " ",
+    {
+        name = "entry_b";
+    },
+    " - and some static stuff"
+);
 
 // this is a timer entry
 entry_a = {
