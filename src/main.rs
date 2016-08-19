@@ -6,9 +6,9 @@ use getopts::Options;
 use std::env;
 use std::path::Path;
 
-pub mod types;
+pub mod bartender;
 
-use types::Configuration;
+use bartender::Configuration;
 
 /// Main function.
 ///
@@ -35,7 +35,7 @@ fn main() {
     }
 
     // obtain and parse config file
-    let config = if let Some(path) = matches.opt_str("c") {
+    let mut config = if let Some(path) = matches.opt_str("c") {
         Configuration::from_config_file(Path::new(path.as_str()))
     } else if let Some(mut dir) = env::home_dir() {
         dir.push(".bartenderrc");
@@ -48,4 +48,8 @@ fn main() {
     };
 
     println!("Config obtained: {:?}", config);
+
+    if let Ok(mut config) = config {
+        config.run()
+    }
 }

@@ -7,6 +7,8 @@ use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
 use std::path::{Path,PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 /// Configuration data.
 ///
@@ -90,6 +92,29 @@ impl Configuration {
             fifos: fifos,
         })
     }
+
+    pub fn run(&mut self) {
+        let (tx, rx) = mpsc::channel();
+
+        for (index, timer) in self.timers.drain(..) {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                timer.run(index, tx);
+            });
+        }
+
+        for (index, fifo) in self.fifos.drain(..) {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                fifo.run(index, tx);
+            });
+        }
+
+        for (index, value) in rx.iter() {
+            self.buffer.set(index, value);
+            self.buffer.output();
+        }
+    }
 }
 
 /// An error that occured during setup.
@@ -144,14 +169,36 @@ pub struct Timer {
     command: PathBuf,
 }
 
+impl Timer {
+    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
+
+    }
+}
+
 /// A FIFO source.
 #[derive(Debug)]
 pub struct Fifo {
     path: PathBuf,
 }
 
+impl Fifo {
+    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
+
+    }
+}
+
 /// An Output buffer.
 #[derive(Debug)]
 pub struct Buffer {
     format: Vec<String>,
+}
+
+impl Buffer {
+    fn set(&mut self, index: usize, value: String) {
+        self.format[index] = value;
+    }
+
+    fn output(&self) {
+        println!("{}", self.format.join(""));
+    }
 }
