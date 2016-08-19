@@ -6,9 +6,14 @@ use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
+use std::fs::File;
+use std::io::BufReader;
+use std::io::prelude::*;
 use std::path::{Path,PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 /// Configuration data.
 ///
@@ -171,7 +176,16 @@ pub struct Timer {
 
 impl Timer {
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-
+        let duration = Duration::new(self.seconds as u64, 0);
+        loop {
+            if let Ok(output) = Command::new("sh")
+                .arg("-c").arg(&self.command).output() {
+                if let Ok(s) = String::from_utf8(output.stdout) {
+                    let _ = tx.send((index, s));
+                }
+            }
+            thread::sleep(duration);
+        }
     }
 }
 
@@ -183,7 +197,14 @@ pub struct Fifo {
 
 impl Fifo {
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-
+        if let Ok(f) = File::open(&self.path) {
+            let file = BufReader::new(f);
+            for line in file.lines() {
+                if let Ok(l) = line {
+                    let _ = tx.send((index, l));
+                }
+            }
+        }
     }
 }
 
