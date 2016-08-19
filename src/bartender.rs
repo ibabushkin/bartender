@@ -2,10 +2,13 @@
 //!
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
+
+// machinery to parse config file
 use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
+// I/O stuff for the heavy lifting
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
@@ -98,6 +101,11 @@ impl Configuration {
         })
     }
 
+    /// Run with the given configuration.
+    ///
+    /// Create a MPSC channel passed to each thread spawned, each representing
+    /// one of the entries (which is either FIFO or timer). The messages get
+    /// merged into the buffer and the modified contents get stored.
     pub fn run(&mut self) {
         let (tx, rx) = mpsc::channel();
 
@@ -170,16 +178,22 @@ fn get_seconds(cfg: &Config, name: &str) -> u32 {
 /// A timer source.
 #[derive(Debug)]
 pub struct Timer {
+    /// The number of seconds between each invocation of the command.
     seconds: u32,
+    /// The command as a path buffer
     command: PathBuf,
 }
 
 impl Timer {
+    /// Run a timer input handler.
+    ///
+    /// Spawned in a separate thread, return a message for each time the
+    /// command gets executed between sleep periods.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
         let duration = Duration::new(self.seconds as u64, 0);
         loop {
             if let Ok(output) = Command::new("sh")
-                .arg("-c").arg(&self.command).output() {
+                .arg(&self.command).output() {
                 if let Ok(s) = String::from_utf8(output.stdout) {
                     let _ = tx.send((index, s));
                 }
@@ -192,10 +206,15 @@ impl Timer {
 /// A FIFO source.
 #[derive(Debug)]
 pub struct Fifo {
+    /// Path to FIFO.
     path: PathBuf,
 }
 
 impl Fifo {
+    /// Run a FIFO input handler.
+    ///
+    /// Spawned in a separate thread, return a message with a given index
+    /// for each line received.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
         if let Ok(f) = File::open(&self.path) {
             let file = BufReader::new(f);
@@ -211,14 +230,17 @@ impl Fifo {
 /// An Output buffer.
 #[derive(Debug)]
 pub struct Buffer {
+    /// Format as a vector of strings that can be adressed (and changed)
     format: Vec<String>,
 }
 
 impl Buffer {
+    /// Set the value at a given index.
     fn set(&mut self, index: usize, value: String) {
         self.format[index] = value;
     }
 
+    /// Format everything
     fn output(&self) {
         println!("{}", self.format.join(""));
     }
