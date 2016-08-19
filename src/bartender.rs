@@ -217,12 +217,21 @@ impl Fifo {
     /// for each line received.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
         if let Ok(f) = File::open(&self.path) {
-            let file = BufReader::new(f);
-            for line in file.lines() {
-                if let Ok(l) = line {
-                    let _ = tx.send((index, l));
+            let mut file = BufReader::new(f);
+            let mut buf = Vec::new();
+            loop {
+                if file.read_until(0xA, &mut buf).is_ok() {
+                    if let Some(&c) = buf.last() {
+                        if c == 0xA { let _ = buf.pop(); }
+                        if let Ok(s) = String::from_utf8(buf) {
+                            let _ = tx.send((index, s));
+                        }
+                        buf = Vec::new();
+                    }
                 }
             }
+        } else {
+            panic!("file couldn't be opened");
         }
     }
 }
