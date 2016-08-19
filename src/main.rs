@@ -4,6 +4,7 @@ extern crate getopts;
 use getopts::Options;
 
 use std::env;
+use std::io::Write;
 use std::path::Path;
 
 pub mod bartender;
@@ -47,7 +48,7 @@ fn main() {
         panic!("no config file could be determined!");
     };
 
-    println!("Config obtained: {:?}", config);
+    let _ = writeln!(&mut std::io::stderr(), "Config obtained: {:?}", config);
 
     if let Ok(mut config) = config {
         config.run()
