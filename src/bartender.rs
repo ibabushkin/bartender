@@ -254,6 +254,9 @@ impl Fifo {
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
         if let Ok(f) =
             OpenOptions::new().read(true).write(true).open(&self.path) {
+            // we open the file in read-write mode to prevent our poll()
+            // hack from sending us `POLLHUP`s when no process is at the
+            // other end of the pipe, so it blocks either way.
             let mut file = BufReader::new(f);
             let mut buf = Vec::new();
             let mut pollfd = setup_pollfd(file.get_ref());
