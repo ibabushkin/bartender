@@ -3,13 +3,15 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
+use c_helper::{wait_for_data,setup_pollfd};
+
 // machinery to parse config file
 use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
 // I/O stuff for the heavy lifting
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::io::prelude::*;
 use std::path::{Path,PathBuf};
@@ -216,10 +218,13 @@ impl Fifo {
     /// Spawned in a separate thread, return a message with a given index
     /// for each line received.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        if let Ok(f) = File::open(&self.path) {
+        if let Ok(f) =
+            OpenOptions::new().read(true).write(true).open(&self.path) {
             let mut file = BufReader::new(f);
             let mut buf = Vec::new();
+            let mut pollfd = setup_pollfd(file.get_ref());
             loop {
+                wait_for_data(&mut pollfd);
                 if file.read_until(0xA, &mut buf).is_ok() {
                     if let Some(&c) = buf.last() {
                         if c == 0xA { let _ = buf.pop(); }

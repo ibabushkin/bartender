@@ -1,5 +1,6 @@
 extern crate config;
 extern crate getopts;
+extern crate libc;
 
 use getopts::Options;
 
@@ -8,6 +9,7 @@ use std::io::Write;
 use std::path::Path;
 
 pub mod bartender;
+pub mod c_helper;
 
 use bartender::Configuration;
 
