@@ -50,9 +50,15 @@ fn main() {
         panic!("no config file could be determined!");
     };
 
-    let _ = writeln!(&mut std::io::stderr(), "Config obtained: {:?}", config);
-
-    if let Ok(mut config) = config {
-        config.run()
+    match config {
+        Ok(mut config) => {
+            let _ = writeln!(&mut std::io::stderr(),
+                "obtained config: {:?}", config);
+            config.run()
+        },
+        Err(e) => {
+            let _ = writeln!(&mut std::io::stderr(),
+                "error reading config: {}", e);
+        },
     }
 }

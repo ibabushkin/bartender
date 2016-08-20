@@ -9,10 +9,9 @@ use std::os::unix::io::AsRawFd;
 /// infinite timeout and returns once data is available.
 pub fn wait_for_data(fd: &mut libc::pollfd) {
     unsafe {
-        if libc::poll(fd as *mut libc::pollfd, 1, -1) > 0 {
-            if (*fd).revents & libc::POLLIN != 0 {
-                return;
-            }
+        if libc::poll(fd as *mut libc::pollfd, 1, -1) > 0 &&
+            (*fd).revents & libc::POLLIN != 0 {
+            return;
         }
         unreachable!();
     }

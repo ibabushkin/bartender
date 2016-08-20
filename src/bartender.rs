@@ -3,6 +3,7 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
+// some hacks for proper blocking
 use c_helper::{wait_for_data,setup_pollfd};
 
 // machinery to parse config file
@@ -10,6 +11,8 @@ use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
+use std::env::home_dir;
+use std::fmt;
 // I/O stuff for the heavy lifting
 use std::fs::OpenOptions;
 use std::io::BufReader;
@@ -81,12 +84,12 @@ impl Configuration {
                 let path = try!(get_child(&cfg, &name, "command_path"));
                 timers.push((index, Timer {
                     seconds: get_seconds(&cfg, name),
-                    command: PathBuf::from(path),
+                    command: try!(parse_path(path)),
                 }));
             } else if t == "fifo" {
                 let path = try!(get_child(&cfg, &name, "fifo_path"));
                 fifos.push((index, Fifo {
-                    path: PathBuf::from(path),
+                    path: try!(parse_path(path)),
                 }));
             } else {
                 return Err(
@@ -132,8 +135,19 @@ impl Configuration {
     }
 }
 
+fn parse_path(path: &str) -> ConfigResult<PathBuf> {
+    if path.starts_with("~/") {
+        if let Some(dir) = home_dir() {
+            Ok(dir.join(PathBuf::from(&path[2..])))
+        } else {
+            Err(ConfigurationError::NoHome)
+        }
+    } else {
+        Ok(PathBuf::from(path))
+    }
+}
+
 /// An error that occured during setup.
-#[derive(Debug)]
 pub enum ConfigurationError {
     /// The file could not be parsed.
     ParsingError(ConfigError),
@@ -145,6 +159,26 @@ pub enum ConfigurationError {
     MissingChild(String, String),
     /// A `type` value of a nested entry has an illegal value.
     IllegalType(String),
+    NoHome,
+}
+
+impl fmt::Display for ConfigurationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            ConfigurationError::ParsingError(ref c) =>
+                write!(f, "parsing error: {}", c),
+            ConfigurationError::MissingFormat =>
+                write!(f, "no `format` list found"),
+            ConfigurationError::IllegalFormat =>
+                write!(f, "`format` list contains illegal entry"),
+            ConfigurationError::MissingChild(ref p, ref c) =>
+                write!(f, "object {} misses child {}", p, c),
+            ConfigurationError::IllegalType(ref t) =>
+                write!(f, "{} is not a valid `type` value", t),
+            ConfigurationError::NoHome =>
+                write!(f, "no home directory found"),
+        }
+    }
 }
 
 /// Result wrapper.
@@ -236,7 +270,7 @@ impl Fifo {
                 }
             }
         } else {
-            panic!("file couldn't be opened");
+            panic!("file could not be opened");
         }
     }
 }
