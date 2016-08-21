@@ -288,7 +288,7 @@ pub struct Buffer {
 impl Buffer {
     /// Set the value at a given index.
     fn set(&mut self, index: usize, value: String) {
-        self.format[index] = value;
+        self.format[index] = value.replace('\n', "");
     }
 
     /// Format everything
