@@ -84,7 +84,7 @@ impl Configuration {
                 let path = try!(get_child(&cfg, &name, "command_path"));
                 timers.push((index, Timer {
                     seconds: get_seconds(&cfg, name),
-                    command: try!(parse_path(path)),
+                    command: String::from(path),
                 }));
             } else if t == "fifo" {
                 let path = try!(get_child(&cfg, &name, "fifo_path"));
@@ -217,7 +217,7 @@ pub struct Timer {
     /// The number of seconds between each invocation of the command.
     seconds: u32,
     /// The command as a path buffer
-    command: PathBuf,
+    command: String,
 }
 
 impl Timer {
@@ -229,7 +229,7 @@ impl Timer {
         let duration = Duration::new(self.seconds as u64, 0);
         loop {
             if let Ok(output) = Command::new("sh")
-                .arg(&self.command).output() {
+                .args(&["-c", &self.command]).output() {
                 if let Ok(s) = String::from_utf8(output.stdout) {
                     let _ = tx.send((index, s));
                 }
