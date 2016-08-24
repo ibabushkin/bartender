@@ -1,4 +1,4 @@
-//! Configuration Parser module.
+//! Configuration Parser and Interpreter module.
 //!
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
@@ -11,9 +11,10 @@ use config::error::ConfigError;
 use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
+// I/O stuff for the heavy lifting, path lookup and similar things
+use std::collections::HashMap;
 use std::env::home_dir;
 use std::fmt;
-// I/O stuff for the heavy lifting
 use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::io::prelude::*;
@@ -44,7 +45,8 @@ impl Configuration {
 
         // variables used for temporary storage and buildup of values
         let mut format_string = Vec::new();
-        let mut entries = Vec::new();
+        let mut timers = Vec::new();
+        let mut fifos = Vec::new();
 
         // parse format information from config file
         let format =
@@ -59,49 +61,14 @@ impl Configuration {
             match *entry {
                 Value::Svalue(ScalarValue::Str(ref s)) =>
                     format_string.push(s.clone()),
-                Value::Group(ref s) =>
-                    if let Some(&Setting {
-                            value: Value::Svalue(ScalarValue::Str(ref name)),
-                            ..
-                        }) = s.get("name") {
-                        entries.push((name.clone(), format_string.len()));
-                        if let Some(&Setting {
-                                value: Value::Svalue(ScalarValue::Str(ref d)),
-                                ..
-                            }) = s.get("default") {
-                            format_string.push(d.clone());
-                        } else {
-                            format_string.push(String::new());
-                        }
-                    } else {
-                        return Err(ConfigurationError::IllegalFormat);
-                    },
+                Value::Group(ref s) => {
+                    let name = try!(get_nested_child(s, "name"));
+                    try!(lookup_format_entry(&cfg, &mut timers, &mut fifos,
+                                             name, format_string.len()));
+                    let d = get_nested_child(s, "default").unwrap_or("");
+                    format_string.push(String::from(d));
+                },
                 _ => return Err(ConfigurationError::IllegalFormat),
-            }
-        }
-
-        // more buildup variables
-        let mut timers = Vec::new();
-        let mut fifos = Vec::new();
-
-        // build up the sources
-        for (ref name, index) in entries {
-            let t = try!(get_child(&cfg, &name, "type"));
-            if t == "timer" {
-                let path = try!(get_child(&cfg, &name, "command_path"));
-                timers.push((index, Timer {
-                    seconds: get_seconds(&cfg, name),
-                    command: String::from(path),
-                }));
-            } else if t == "fifo" {
-                let path = try!(get_child(&cfg, &name, "fifo_path"));
-                fifos.push((index, Fifo {
-                    path: try!(parse_path(path)),
-                }));
-            } else {
-                return Err(
-                    ConfigurationError::IllegalType(name.clone())
-                );
             }
         }
 
@@ -139,18 +106,6 @@ impl Configuration {
             self.buffer.set(index, value);
             self.buffer.output();
         }
-    }
-}
-
-fn parse_path(path: &str) -> ConfigResult<PathBuf> {
-    if path.starts_with("~/") {
-        if let Some(dir) = home_dir() {
-            Ok(dir.join(PathBuf::from(&path[2..])))
-        } else {
-            Err(ConfigurationError::NoHome)
-        }
-    } else {
-        Ok(PathBuf::from(path))
     }
 }
 
@@ -199,6 +154,19 @@ fn parse_config_file(file: &Path) -> ConfigResult<Config> {
     }
 }
 
+/// Parse a path - helper.
+fn parse_path(path: &str) -> ConfigResult<PathBuf> {
+    if path.starts_with("~/") {
+        if let Some(dir) = home_dir() {
+            Ok(dir.join(PathBuf::from(&path[2..])))
+        } else {
+            Err(ConfigurationError::NoHome)
+        }
+    } else {
+        Ok(PathBuf::from(path))
+    }
+}
+
 /// Get a child element from a nested entry - helper.
 fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
     -> ConfigResult<&'a str> {
@@ -213,9 +181,47 @@ fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
     }
 }
 
+/// Get a child element from a nested entry in format specifier - helper.
+fn get_nested_child<'a>(s: &'a HashMap<String, Setting>, name: &str)
+    -> ConfigResult<&'a str> {
+    if let Some(&Setting {
+        value: Value::Svalue(ScalarValue::Str(ref val)),
+        ..
+    }) = s.get(name) {
+        Ok(val)
+    } else {
+        Err(ConfigurationError::IllegalFormat)
+    }
+}
+
 /// Get a `seconds` value from a nested entry - helper.
 fn get_seconds(cfg: &Config, name: &str) -> u32 {
     cfg.lookup_integer32_or(format!("{}.seconds", name).as_str(), 1) as u32
+}
+
+/// Look up a format entry by name - helper.
+fn lookup_format_entry(cfg: &Config,
+                       timers: &mut Vec<(usize, Timer)>,
+                       fifos: &mut Vec<(usize, Fifo)>,
+                       name: &str, index: usize)
+    -> ConfigResult<()> {
+    let t = try!(get_child(&cfg, &name, "type"));
+    if t == "timer" {
+        let path = try!(get_child(&cfg, &name, "command"));
+        timers.push((index, Timer {
+            seconds: get_seconds(&cfg, name),
+            command: String::from(path),
+        }));
+        Ok(())
+    } else if t == "fifo" {
+        let path = try!(get_child(&cfg, &name, "fifo_path"));
+        fifos.push((index, Fifo {
+            path: try!(parse_path(path)),
+        }));
+        Ok(())
+    } else {
+        Err(ConfigurationError::IllegalType(String::from(name)))
+    }
 }
 
 /// A timer source.
