@@ -65,7 +65,14 @@ impl Configuration {
                             ..
                         }) = s.get("name") {
                         entries.push((name.clone(), format_string.len()));
-                        format_string.push(String::new());
+                        if let Some(&Setting {
+                                value: Value::Svalue(ScalarValue::Str(ref d)),
+                                ..
+                            }) = s.get("default") {
+                            format_string.push(d.clone());
+                        } else {
+                            format_string.push(String::new());
+                        }
                     } else {
                         return Err(ConfigurationError::IllegalFormat);
                     },

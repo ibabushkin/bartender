@@ -20,4 +20,5 @@ entry_a = {
 entry_b = {
     type = "fifo";
     fifo_path = "~/tmp/entry_b_fifo";
+    default = "some value";
 };
