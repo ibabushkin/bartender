@@ -66,5 +66,5 @@ Now, to actually run bartender, I have this snippet in my `~/.xinitrc`:
 
 Granted, this is a pretty minimal configuration, but it serves pretty well for
 demonstration purposes. Note that
-[`gabelstaplewm`](https://github.com/ibabushkin/gabelstaplerwm) outputs the tag
+[`gabelstaplerwm`](https://github.com/ibabushkin/gabelstaplerwm) outputs the tag
 data to `stdout` in my configuration.
