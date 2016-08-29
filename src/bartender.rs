@@ -22,7 +22,8 @@ use std::path::{Path,PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::Duration as StdDuration;
+use time::{Duration,now};
 
 /// Configuration data.
 ///
@@ -194,11 +195,6 @@ fn get_nested_child<'a>(s: &'a HashMap<String, Setting>, name: &str)
     }
 }
 
-/// Get a `seconds` value from a nested entry - helper.
-fn get_seconds(cfg: &Config, name: &str) -> u32 {
-    cfg.lookup_integer32_or(format!("{}.seconds", name).as_str(), 1) as u32
-}
-
 /// Look up a format entry by name - helper.
 fn lookup_format_entry(cfg: &Config,
                        timers: &mut Vec<(usize, Timer)>,
@@ -209,7 +205,10 @@ fn lookup_format_entry(cfg: &Config,
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
         timers.push((index, Timer {
-            seconds: get_seconds(&cfg, name),
+            seconds: cfg.lookup_integer32_or(
+                format!("{}.seconds", name).as_str(), 1) as u32,
+            sync: cfg.lookup_boolean_or(
+                format!("{}.sync", name).as_str(), false),
             command: String::from(path),
         }));
         Ok(())
@@ -229,6 +228,8 @@ fn lookup_format_entry(cfg: &Config,
 pub struct Timer {
     /// The number of seconds between each invocation of the command.
     seconds: u32,
+    /// Sync to full minute on first/second iteration.
+    sync: bool,
     /// The command as a path buffer
     command: String,
 }
@@ -239,15 +240,28 @@ impl Timer {
     /// Spawned in a separate thread, return a message for each time the
     /// command gets executed between sleep periods.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        let duration = Duration::new(self.seconds as u64, 0);
+        let duration = StdDuration::new(self.seconds as u64, 0);
+        if self.sync {
+            let now = now();
+            let first_wait = (Duration::seconds((60 - now.tm_sec - 1) as i64) +
+                Duration::nanoseconds((10^9 - now.tm_nsec - 1) as i64))
+                .to_std().unwrap();
+            self.execute(index, &tx);
+            thread::sleep(first_wait);
+        }
         loop {
-            if let Ok(output) = Command::new("sh")
-                .args(&["-c", &self.command]).output() {
-                if let Ok(s) = String::from_utf8(output.stdout) {
-                    let _ = tx.send((index, s));
-                }
-            }
+            self.execute(index, &tx);
             thread::sleep(duration);
+        }
+    }
+
+    /// Execute one iteration of the command.
+    fn execute(&self, index: usize, tx: &mpsc::Sender<(usize, String)>) {
+        if let Ok(output) = Command::new("sh")
+            .args(&["-c", &self.command]).output() {
+            if let Ok(s) = String::from_utf8(output.stdout) {
+                let _ = tx.send((index, s));
+            }
         }
     }
 }

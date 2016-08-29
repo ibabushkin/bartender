@@ -13,6 +13,7 @@ format = (
 entry_a = {
     type = "timer";
     seconds = 2;
+    sync = true;
     command_path = "~/dotfiles/timer_a.sh";
 };
 
