@@ -14,7 +14,7 @@ entry_a = {
     type = "timer";
     seconds = 2;
     sync = true;
-    command_path = "~/dotfiles/timer_a.sh";
+    command = "~/dotfiles/timer_a.sh";
 };
 
 // this is a FIFO entry
