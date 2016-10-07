@@ -262,6 +262,22 @@ impl Timer {
             if let Ok(s) = String::from_utf8(output.stdout) {
                 let _ = tx.send((index, s));
             }
+
+            macro_rules! err {
+                ($format:expr, $($arg:expr),*) => {{
+                    use std::io::stderr;
+                    let _ =
+                        writeln!(&mut stderr(), $format, $($arg),*);
+                }}
+            }
+
+            match output.status.code() {
+                Some(0) => (),
+                Some(c) =>
+                    err!("process \"{}\" exited with code {}",
+                         self.command, c),
+                None => (),
+            }
         }
     }
 }
