@@ -276,7 +276,8 @@ impl Timer {
                 Some(c) =>
                     err!("process \"{}\" exited with code {}",
                          self.command, c),
-                None => (),
+                None =>
+                    err!("process \"{}\" got killed by signal", self.command),
             }
         }
     }
