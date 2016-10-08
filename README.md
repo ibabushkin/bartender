@@ -47,7 +47,7 @@ clock = {
     type = "timer"; // the time changes once a minute
     seconds = 60;
     sync = true; // sync second invocation to full minute
-    command_path = "~/dotfiles/clock.sh";
+    command = "~/dotfiles/clock.sh";
 };
 ```
 
