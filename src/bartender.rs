@@ -228,7 +228,7 @@ fn lookup_format_entry(cfg: &Config,
 
 /// A timer source.
 #[derive(Debug)]
-pub struct Timer {
+struct Timer {
     /// Time interval between invocations.
     duration: StdDuration,
     /// Sync to full minute on first/second iteration.
@@ -341,7 +341,7 @@ impl TimerSet {
 
 /// A FIFO source.
 #[derive(Debug)]
-pub struct Fifo {
+struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
 }
