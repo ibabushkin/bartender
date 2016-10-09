@@ -5,6 +5,7 @@ format = (
     " ",
     {
         name = "entry_b";
+        default = "some value";
     },
     " - and some static stuff"
 );
@@ -21,5 +22,4 @@ entry_a = {
 entry_b = {
     type = "fifo";
     fifo_path = "~/tmp/entry_b_fifo";
-    default = "some value";
 };
