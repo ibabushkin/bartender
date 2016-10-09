@@ -1,7 +1,7 @@
 extern crate config;
 extern crate getopts;
 extern crate libc;
-extern crate time;
+//extern crate time;
 
 use getopts::Options;
 
@@ -52,7 +52,7 @@ fn main() {
     };
 
     match config {
-        Ok(mut config) => {
+        Ok(config) => {
             let _ = writeln!(&mut std::io::stderr(),
                 "obtained config: {:?}", config);
             config.run()

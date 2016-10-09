@@ -12,6 +12,8 @@ use config::reader::from_file;
 use config::types::{Config,ScalarValue,Setting,Value};
 
 // I/O stuff for the heavy lifting, path lookup and similar things
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::env::home_dir;
 use std::fmt;
@@ -23,7 +25,8 @@ use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration as StdDuration;
-use time::{Duration,now};
+use std::time::Instant;
+//use time::{Duration,now};
 
 /// Configuration data.
 ///
@@ -33,7 +36,7 @@ pub struct Configuration {
     /// output buffer
     buffer: Buffer,
     /// all timer sources
-    timers: Vec<(usize, Timer)>,
+    timers: TimerSet,
     /// all FIFO sources
     fifos: Vec<(usize, Fifo)>,
 }
@@ -76,7 +79,7 @@ impl Configuration {
         // return the results
         Ok(Configuration {
             buffer: Buffer { format: format_string },
-            timers: timers,
+            timers: TimerSet { timers: timers },
             fifos: fifos,
         })
     }
@@ -86,13 +89,14 @@ impl Configuration {
     /// Create a MPSC channel passed to each thread spawned, each representing
     /// one of the entries (which is either FIFO or timer). The messages get
     /// merged into the buffer and the modified contents get stored.
-    pub fn run(&mut self) {
+    pub fn run(mut self) {
         let (tx, rx) = mpsc::channel();
 
-        for (index, timer) in self.timers.drain(..) {
+        {
             let tx = tx.clone();
+            let timers = self.timers;
             thread::spawn(move || {
-                timer.run(index, tx);
+                timers.run(tx);
             });
         }
 
@@ -205,8 +209,8 @@ fn lookup_format_entry(cfg: &Config,
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
         timers.push((index, Timer {
-            seconds: cfg.lookup_integer32_or(
-                format!("{}.seconds", name).as_str(), 1) as u32,
+            duration: StdDuration::from_secs(cfg.lookup_integer64_or(
+                format!("{}.seconds", name).as_str(), 1) as u64),
             sync: cfg.lookup_boolean_or(
                 format!("{}.sync", name).as_str(), false),
             command: String::from(path),
@@ -226,34 +230,33 @@ fn lookup_format_entry(cfg: &Config,
 /// A timer source.
 #[derive(Debug)]
 pub struct Timer {
-    /// The number of seconds between each invocation of the command.
-    seconds: u32,
+    /// Time interval between invocations.
+    duration: StdDuration,
     /// Sync to full minute on first/second iteration.
-    sync: bool,
+    sync: bool, // TODO
     /// The command as a path buffer
     command: String,
 }
 
 impl Timer {
-    /// Run a timer input handler.
+    /*/// Run a timer input handler.
     ///
     /// Spawned in a separate thread, return a message for each time the
     /// command gets executed between sleep periods.
     pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        let duration = StdDuration::new(self.seconds as u64, 0);
         if self.sync {
             let now = now();
             let first_wait = (Duration::seconds((60 - now.tm_sec - 1) as i64) +
-                Duration::nanoseconds((10^9 - now.tm_nsec - 1) as i64))
+                Duration::nanoseconds(((10^9) - now.tm_nsec - 1) as i64))
                 .to_std().unwrap();
             self.execute(index, &tx);
             thread::sleep(first_wait);
         }
         loop {
             self.execute(index, &tx);
-            thread::sleep(duration);
+            thread::sleep(self.duration);
         }
-    }
+    }*/
 
     /// Execute one iteration of the command.
     fn execute(&self, index: usize, tx: &mpsc::Sender<(usize, String)>) {
@@ -278,6 +281,57 @@ impl Timer {
                          self.command, c),
                 None =>
                     err!("process \"{}\" got killed by signal", self.command),
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct Entry(Instant, usize);
+
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Entry) -> Option<Ordering> {
+        if self.0 == other.0 {
+            self.1.partial_cmp(&other.1).map(|c| c.reverse())
+        } else {
+            self.0.partial_cmp(&other.0).map(|c| c.reverse())
+        }
+    }
+}
+
+impl Ord for Entry {
+    fn cmp(&self, other: &Entry) -> Ordering {
+        if self.0 == other.0 {
+            self.1.cmp(&other.1).reverse()
+        } else {
+            self.0.cmp(&other.0).reverse()
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TimerSet {
+    timers: Vec<(usize, Timer)>,
+}
+
+impl TimerSet {
+    pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
+        let len = self.timers.len();
+        let start_time = Instant::now();
+        let mut heap = BinaryHeap::with_capacity(len);
+
+        for index in 0..len {
+            heap.push(Entry(start_time, index));
+        }
+
+        while let Some(Entry(timestamp, index)) = heap.pop() {
+            let now = Instant::now();
+            if timestamp > now {
+                thread::sleep(timestamp - now);
+            }
+            if let Some(&(target_index, ref timer)) = self.timers.get(index) {
+                timer.execute(target_index, &tx);
+                heap.push(Entry(timestamp + timer.duration, index));
             }
         }
     }
