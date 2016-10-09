@@ -26,7 +26,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration as StdDuration;
 use std::time::Instant;
-//use time::{Duration,now};
 
 /// Configuration data.
 ///
@@ -309,12 +308,15 @@ impl Ord for Entry {
     }
 }
 
+/// A Set of timers, that get fired by a special worker thread.
 #[derive(Debug)]
 pub struct TimerSet {
+    /// The actual timers and some info to direct their output.
     timers: Vec<(usize, Timer)>,
 }
 
 impl TimerSet {
+    /// Run a worker thread.
     pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
         let len = self.timers.len();
         let start_time = Instant::now();
