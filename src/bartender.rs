@@ -28,6 +28,9 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+/// A channel we send our messages through.
+pub type Channel = mpsc::Sender<Vec<(usize, String)>>;
+
 /// Configuration data.
 ///
 /// Holds a number of input sources as well as an output buffer.
@@ -107,8 +110,8 @@ impl Configuration {
             });
         }
 
-        for (index, value) in rx.iter() {
-            self.buffer.set(index, value);
+        for update in rx.iter() {
+            self.buffer.set(update);
             self.buffer.output();
         }
     }
@@ -240,11 +243,11 @@ pub struct Timer {
 
 impl Timer {
     /// Execute one iteration of the command.
-    fn execute(&self, index: usize, tx: &mpsc::Sender<(usize, String)>) {
+    fn execute(&self, index: usize, tx: &Channel) {
         if let Ok(output) = Command::new("sh")
             .args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
-                let _ = tx.send((index, s));
+                let _ = tx.send(vec![(index, s)]);
             }
 
             macro_rules! err {
@@ -300,7 +303,7 @@ pub struct TimerSet {
 
 impl TimerSet {
     /// Run a worker thread handling `Timer`s.
-    pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
+    pub fn run(&self, tx: Channel) {
         let len = self.timers.len();
         let start_time = Instant::now();
         let mut heap = BinaryHeap::with_capacity(len);
@@ -337,7 +340,7 @@ pub struct FifoSet {
 
 impl FifoSet {
     /// Run a worker thread handling `FIFO`s.
-    pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
+    pub fn run(&self, tx: Channel) {
         let len = self.fifos.len();
         let mut fds = Vec::with_capacity(len);
         let mut buffers = Vec::with_capacity(len);
@@ -356,10 +359,7 @@ impl FifoSet {
         }
 
         while poll::poll(&mut fds) {
-            let mut res = poll::get_lines(&fds, &mut buffers);
-            for elem in res.drain(..) {
-                let _ = tx.send(elem);
-            }
+            let _ = tx.send(poll::get_lines(&fds, &mut buffers));
         }
     }
 }
@@ -373,8 +373,10 @@ pub struct Buffer {
 
 impl Buffer {
     /// Set the value at a given index.
-    fn set(&mut self, index: usize, value: String) {
-        self.format[index] = value.replace('\n', "");
+    fn set(&mut self, mut updates: Vec<(usize,String)>) {
+        for (index, value) in updates.drain(..) {
+            self.format[index] = value.replace('\n', "");
+        }
     }
 
     /// Format everything
