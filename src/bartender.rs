@@ -29,7 +29,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 /// A channel we send our messages through.
-pub type Channel = mpsc::Sender<Vec<(usize, String)>>;
+type Channel = mpsc::Sender<Vec<(usize, String)>>;
 
 /// Configuration data.
 ///
@@ -152,7 +152,7 @@ impl fmt::Display for ConfigurationError {
 }
 
 /// Result wrapper.
-pub type ConfigResult<T> = Result<T, ConfigurationError>;
+type ConfigResult<T> = Result<T, ConfigurationError>;
 
 /// Parse a configuration file - helper.
 fn parse_config_file(file: &Path) -> ConfigResult<Config> {
@@ -232,7 +232,7 @@ fn lookup_format_entry(cfg: &Config,
 
 /// A timer source.
 #[derive(Debug)]
-pub struct Timer {
+struct Timer {
     /// Time interval between invocations.
     duration: Duration,
     /// Sync to full minute on first/second iteration.
@@ -296,7 +296,7 @@ impl Ord for Entry {
 
 /// A Set of timers, that get fired by a special worker thread.
 #[derive(Debug)]
-pub struct TimerSet {
+struct TimerSet {
     /// The actual timers and some info to direct their output.
     timers: Vec<(usize, Timer)>,
 }
@@ -327,13 +327,13 @@ impl TimerSet {
 
 /// A FIFO source.
 #[derive(Debug)]
-pub struct Fifo {
+struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
 }
 
 #[derive(Debug)]
-pub struct FifoSet {
+struct FifoSet {
     /// The actual FIFOs and some info to direct their output.
     fifos: Vec<(usize, Fifo)>,
 }
@@ -366,7 +366,7 @@ impl FifoSet {
 
 /// An Output buffer.
 #[derive(Debug)]
-pub struct Buffer {
+struct Buffer {
     /// Format as a vector of strings that can be adressed (and changed)
     format: Vec<String>,
 }
