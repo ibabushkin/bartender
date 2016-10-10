@@ -4,24 +4,7 @@ use std::fs::File;
 use std::io::{BufRead,BufReader};
 use std::os::unix::io::AsRawFd;
 
-/// Do... unspeakable things.
-///
-/// Waits for a filedescriptor to yield a value because the default API doesn't
-/// give us this option. Calls `poll(3)` on the file descriptor opened with an
-/// infinite timeout and returns once data is available.
-pub fn wait_for_data(fd: &mut libc::pollfd) {
-    unsafe {
-        if libc::poll(fd as *mut libc::pollfd, 1, -1) > 0 &&
-            (*fd).revents & libc::POLLIN != 0 {
-            return;
-        }
-        unreachable!();
-    }
-}
-
-/// Do... more unspeakable things.
-///
-/// Setup `pollfd` structure to use with the above waiting routine.
+/// Set up a file to use with `poll`.
 pub fn setup_pollfd(fd: &File) -> libc::pollfd {
     libc::pollfd {
         fd: fd.as_raw_fd(),
@@ -30,6 +13,7 @@ pub fn setup_pollfd(fd: &File) -> libc::pollfd {
     }
 }
 
+/// Poll a set of filedescriptors perviously wrapped.
 pub fn poll(fds: &mut [libc::pollfd]) -> bool {
     let poll_res = unsafe {
         libc::poll(fds.as_mut_ptr(), fds.len() as u64, -1)
@@ -37,8 +21,11 @@ pub fn poll(fds: &mut [libc::pollfd]) -> bool {
     poll_res > 0
 }
 
+/// A wrapped `BufReader` only yielding complete lines, annotated with
+/// an index.
 pub struct FileBuffer(pub Vec<u8>, pub BufReader<File>, pub usize);
 
+/// Fill some buffers from a set of previously `poll`ed filedsecriptors.
 pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
     -> Vec<(usize, String)> {
     let fd_len = fds.len();
