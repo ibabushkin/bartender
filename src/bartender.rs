@@ -4,7 +4,7 @@
 //! found in configuration files for the software.
 
 // some hacks for proper blocking
-use c_helper::{wait_for_data,setup_pollfd};
+use c_helper::*;
 
 // machinery to parse config file
 use config::error::ConfigError;
@@ -374,6 +374,30 @@ impl Fifo {
             }
         } else {
             panic!("file could not be opened");
+        }
+    }
+}
+
+pub struct FifoSet {
+    /// The actual FIFOs and some info to direct their output.
+    fifos: Vec<(usize, Fifo)>,
+}
+
+impl FifoSet {
+    /// Run a worker thread.
+    pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
+        let len = self.fifos.len();
+        let mut fds = Vec::with_capacity(len);
+        let mut buffers = Vec::with_capacity(len);
+
+        for &(index, ref fifo) in self.fifos.iter() {
+            if let Ok(f) =
+                OpenOptions::new().read(true).write(true).open(&fifo.path) {
+                fds.push(setup_pollfd(&f));
+                buffers.push(FileBuffer(Vec::new(), BufReader::new(f), index));
+            } else {
+                panic!("file could not be opened");
+            }
         }
     }
 }

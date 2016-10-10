@@ -37,39 +37,28 @@ pub fn poll(fds: &mut [libc::pollfd]) -> bool {
     poll_res > 0
 }
 
-pub fn get_lines(fds: &[libc::pollfd],
-                 readers: &mut [(Vec<u8>, BufReader<File>)])
-    -> Option<Vec<Option<String>>> {
+pub struct FileBuffer(pub Vec<u8>, pub BufReader<File>, pub usize);
+
+pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
+    -> Vec<(usize, String)> {
     let fd_len = fds.len();
-    if fd_len == readers.len() {
-        let mut res = Vec::with_capacity(fd_len);
-        for (fd, &mut (ref mut buf, ref mut reader)) in
-            fds.iter().zip(readers) {
-            if fd.fd != reader.get_ref().as_raw_fd() {
-                return None;
-            }
-            res.push(if fd.revents & libc::POLLIN != 0 {
-                if reader.read_until(0xA, buf).is_ok() {
-                    if let Some(&c) = buf.last() {
-                        if c == 0xA { let _ = buf.pop(); }
-                        if let Ok(s) = String::from_utf8(buf.clone()) {
-                            buf.clear();
-                            Some(s)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            });
+    let mut res = Vec::with_capacity(fd_len);
+    for (fd, &mut FileBuffer(ref mut buf, ref mut reader, index)) in
+        fds.iter().zip(buffers) {
+        if fd.fd != reader.get_ref().as_raw_fd() {
+            panic!("mismatched FileBuffer");
         }
-        Some(res)
-    } else {
-        None
+        if fd.revents & libc::POLLIN != 0 {
+            if reader.read_until(0xA, buf).is_ok() {
+                if let Some(&c) = buf.last() {
+                    if c == 0xA { let _ = buf.pop(); }
+                    if let Ok(s) = String::from_utf8(buf.clone()) {
+                        res.push((index, s));
+                    }
+                    buf.clear();
+                }
+            }
+        }
     }
+    res
 }
