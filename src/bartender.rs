@@ -37,7 +37,7 @@ pub struct Configuration {
     /// all timer sources
     timers: TimerSet,
     /// all FIFO sources
-    fifos: Vec<(usize, Fifo)>,
+    fifos: FifoSet,
 }
 
 impl Configuration {
@@ -79,7 +79,7 @@ impl Configuration {
         Ok(Configuration {
             buffer: Buffer { format: format_string },
             timers: TimerSet { timers: timers },
-            fifos: fifos,
+            fifos: FifoSet { fifos: fifos },
         })
     }
 
@@ -99,10 +99,10 @@ impl Configuration {
             });
         }
 
-        for (index, fifo) in self.fifos.drain(..) {
-            let tx = tx.clone();
+        {
+            let fifos = self.fifos;
             thread::spawn(move || {
-                fifo.run(index, tx);
+                fifos.run(tx);
             });
         }
 
@@ -346,38 +346,7 @@ pub struct Fifo {
     path: PathBuf,
 }
 
-impl Fifo {
-    /// Run a FIFO input handler.
-    ///
-    /// Spawned in a separate thread, return a message with a given index
-    /// for each line received.
-    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        if let Ok(f) =
-            OpenOptions::new().read(true).write(true).open(&self.path) {
-            // we open the file in read-write mode to prevent our poll()
-            // hack from sending us `POLLHUP`s when no process is at the
-            // other end of the pipe, so it blocks either way.
-            let mut file = BufReader::new(f);
-            let mut buf = Vec::new();
-            let mut pollfd = setup_pollfd(file.get_ref());
-            loop {
-                wait_for_data(&mut pollfd);
-                if file.read_until(0xA, &mut buf).is_ok() {
-                    if let Some(&c) = buf.last() {
-                        if c == 0xA { let _ = buf.pop(); }
-                        if let Ok(s) = String::from_utf8(buf) {
-                            let _ = tx.send((index, s));
-                        }
-                        buf = Vec::new();
-                    }
-                }
-            }
-        } else {
-            panic!("file could not be opened");
-        }
-    }
-}
-
+#[derive(Debug)]
 pub struct FifoSet {
     /// The actual FIFOs and some info to direct their output.
     fifos: Vec<(usize, Fifo)>,
@@ -393,10 +362,20 @@ impl FifoSet {
         for &(index, ref fifo) in self.fifos.iter() {
             if let Ok(f) =
                 OpenOptions::new().read(true).write(true).open(&fifo.path) {
+                // we open the file in read-write mode to prevent our poll()
+                // hack from sending us `POLLHUP`s when no process is at the
+                // other end of the pipe, so it blocks either way.
                 fds.push(setup_pollfd(&f));
                 buffers.push(FileBuffer(Vec::new(), BufReader::new(f), index));
             } else {
                 panic!("file could not be opened");
+            }
+        }
+
+        while poll(&mut fds) {
+            let mut res = get_lines(&fds, &mut buffers);
+            for elem in res.drain(..) {
+                let _ = tx.send(elem);
             }
         }
     }
