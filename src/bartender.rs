@@ -212,7 +212,7 @@ fn lookup_format_entry(cfg: &Config,
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
         timers.push((index, Timer {
-            duration: Duration::from_secs(cfg.lookup_integer64_or(
+            duration: Duration::from_secs(cfg.lookup_integer32_or(
                 format!("{}.seconds", name).as_str(), 1) as u64),
             sync: cfg.lookup_boolean_or(
                 format!("{}.sync", name).as_str(), false),
@@ -271,7 +271,7 @@ impl Timer {
 }
 
 /// A type used to order events coming from `Timer`s.
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct Entry(Instant, usize);
 
 impl PartialOrd for Entry {
@@ -317,9 +317,12 @@ impl TimerSet {
             if timestamp > now {
                 thread::sleep(timestamp - now);
             }
+
             if let Some(&(target_index, ref timer)) = self.timers.get(index) {
                 timer.execute(target_index, &tx);
                 heap.push(Entry(timestamp + timer.duration, index));
+            } else {
+                panic!("data corruption");
             }
         }
     }
