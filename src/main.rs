@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 
 pub mod bartender;
-pub mod c_helper;
+pub mod poll;
 
 use bartender::Configuration;
 

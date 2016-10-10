@@ -3,8 +3,9 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
-// some hacks for proper blocking
-use c_helper::*;
+// a rather hackish wrapper around `poll` for proper I/O on FIFOs
+use poll;
+use poll::FileBuffer;
 
 // machinery to parse config file
 use config::error::ConfigError;
@@ -24,7 +25,7 @@ use std::path::{Path,PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration as StdDuration;
+use std::time::Duration;
 use std::time::Instant;
 
 /// Configuration data.
@@ -208,7 +209,7 @@ fn lookup_format_entry(cfg: &Config,
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
         timers.push((index, Timer {
-            duration: StdDuration::from_secs(cfg.lookup_integer64_or(
+            duration: Duration::from_secs(cfg.lookup_integer64_or(
                 format!("{}.seconds", name).as_str(), 1) as u64),
             sync: cfg.lookup_boolean_or(
                 format!("{}.sync", name).as_str(), false),
@@ -230,33 +231,14 @@ fn lookup_format_entry(cfg: &Config,
 #[derive(Debug)]
 pub struct Timer {
     /// Time interval between invocations.
-    duration: StdDuration,
+    duration: Duration,
     /// Sync to full minute on first/second iteration.
-    sync: bool, // TODO
+    sync: bool,
     /// The command as a path buffer
     command: String,
 }
 
 impl Timer {
-    /*/// Run a timer input handler.
-    ///
-    /// Spawned in a separate thread, return a message for each time the
-    /// command gets executed between sleep periods.
-    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        if self.sync {
-            let now = now();
-            let first_wait = (Duration::seconds((60 - now.tm_sec - 1) as i64) +
-                Duration::nanoseconds(((10^9) - now.tm_nsec - 1) as i64))
-                .to_std().unwrap();
-            self.execute(index, &tx);
-            thread::sleep(first_wait);
-        }
-        loop {
-            self.execute(index, &tx);
-            thread::sleep(self.duration);
-        }
-    }*/
-
     /// Execute one iteration of the command.
     fn execute(&self, index: usize, tx: &mpsc::Sender<(usize, String)>) {
         if let Ok(output) = Command::new("sh")
@@ -285,6 +267,7 @@ impl Timer {
     }
 }
 
+/// A type used to order events coming from `Timer`s.
 #[derive(PartialEq, Eq)]
 struct Entry(Instant, usize);
 
@@ -316,7 +299,7 @@ pub struct TimerSet {
 }
 
 impl TimerSet {
-    /// Run a worker thread.
+    /// Run a worker thread handling `Timer`s.
     pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
         let len = self.timers.len();
         let start_time = Instant::now();
@@ -353,27 +336,27 @@ pub struct FifoSet {
 }
 
 impl FifoSet {
-    /// Run a worker thread.
+    /// Run a worker thread handling `FIFO`s.
     pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
         let len = self.fifos.len();
         let mut fds = Vec::with_capacity(len);
         let mut buffers = Vec::with_capacity(len);
 
-        for &(index, ref fifo) in self.fifos.iter() {
+        for &(index, ref fifo) in &self.fifos {
             if let Ok(f) =
                 OpenOptions::new().read(true).write(true).open(&fifo.path) {
                 // we open the file in read-write mode to prevent our poll()
                 // hack from sending us `POLLHUP`s when no process is at the
                 // other end of the pipe, so it blocks either way.
-                fds.push(setup_pollfd(&f));
+                fds.push(poll::setup_pollfd(&f));
                 buffers.push(FileBuffer(Vec::new(), BufReader::new(f), index));
             } else {
                 panic!("file could not be opened");
             }
         }
 
-        while poll(&mut fds) {
-            let mut res = get_lines(&fds, &mut buffers);
+        while poll::poll(&mut fds) {
+            let mut res = poll::get_lines(&fds, &mut buffers);
             for elem in res.drain(..) {
                 let _ = tx.send(elem);
             }

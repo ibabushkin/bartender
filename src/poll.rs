@@ -48,15 +48,14 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
         if fd.fd != reader.get_ref().as_raw_fd() {
             panic!("mismatched FileBuffer");
         }
-        if fd.revents & libc::POLLIN != 0 {
-            if reader.read_until(0xA, buf).is_ok() {
-                if let Some(&c) = buf.last() {
-                    if c == 0xA { let _ = buf.pop(); }
-                    if let Ok(s) = String::from_utf8(buf.clone()) {
-                        res.push((index, s));
-                    }
-                    buf.clear();
+        if fd.revents & libc::POLLIN != 0 &&
+            reader.read_until(0xA, buf).is_ok() {
+            if let Some(&c) = buf.last() {
+                if c == 0xA { let _ = buf.pop(); }
+                if let Ok(s) = String::from_utf8(buf.clone()) {
+                    res.push((index, s));
                 }
+                buf.clear();
             }
         }
     }
