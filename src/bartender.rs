@@ -211,9 +211,14 @@ fn lookup_format_entry(cfg: &Config,
     let t = try!(get_child(&cfg, &name, "type"));
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
+        let path2 = format!("{}.seconds", name);
+        let duration = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
+            d as u64
+        } else {
+            cfg.lookup_integer64_or(path2.as_str(), 1) as u64
+        };
         timers.push((index, Timer {
-            duration: Duration::from_secs(cfg.lookup_integer32_or(
-                format!("{}.seconds", name).as_str(), 1) as u64),
+            duration: Duration::from_secs(duration),
             sync: cfg.lookup_boolean_or(
                 format!("{}.sync", name).as_str(), false),
             command: String::from(path),
