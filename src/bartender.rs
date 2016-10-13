@@ -3,8 +3,9 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
-// some hacks for proper blocking
-use c_helper::{wait_for_data,setup_pollfd};
+// a rather hackish wrapper around `poll` for proper I/O on FIFOs
+use poll;
+use poll::FileBuffer;
 
 // machinery to parse config file
 use config::error::ConfigError;
@@ -24,8 +25,11 @@ use std::path::{Path,PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration as StdDuration;
+use std::time::Duration;
 use std::time::Instant;
+
+/// A channel we send our messages through.
+type Channel = mpsc::Sender<Vec<(usize, String)>>;
 
 /// Configuration data.
 ///
@@ -37,7 +41,7 @@ pub struct Configuration {
     /// all timer sources
     timers: TimerSet,
     /// all FIFO sources
-    fifos: Vec<(usize, Fifo)>,
+    fifos: FifoSet,
 }
 
 impl Configuration {
@@ -79,7 +83,7 @@ impl Configuration {
         Ok(Configuration {
             buffer: Buffer { format: format_string },
             timers: TimerSet { timers: timers },
-            fifos: fifos,
+            fifos: FifoSet { fifos: fifos },
         })
     }
 
@@ -99,15 +103,15 @@ impl Configuration {
             });
         }
 
-        for (index, fifo) in self.fifos.drain(..) {
-            let tx = tx.clone();
+        {
+            let fifos = self.fifos;
             thread::spawn(move || {
-                fifo.run(index, tx);
+                fifos.run(tx);
             });
         }
 
-        for (index, value) in rx.iter() {
-            self.buffer.set(index, value);
+        for update in rx.iter() {
+            self.buffer.set(update);
             self.buffer.output();
         }
     }
@@ -148,7 +152,7 @@ impl fmt::Display for ConfigurationError {
 }
 
 /// Result wrapper.
-pub type ConfigResult<T> = Result<T, ConfigurationError>;
+type ConfigResult<T> = Result<T, ConfigurationError>;
 
 /// Parse a configuration file - helper.
 fn parse_config_file(file: &Path) -> ConfigResult<Config> {
@@ -207,9 +211,14 @@ fn lookup_format_entry(cfg: &Config,
     let t = try!(get_child(&cfg, &name, "type"));
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
+        let path2 = format!("{}.seconds", name);
+        let duration = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
+            d as u64
+        } else {
+            cfg.lookup_integer64_or(path2.as_str(), 1) as u64
+        };
         timers.push((index, Timer {
-            duration: StdDuration::from_secs(cfg.lookup_integer64_or(
-                format!("{}.seconds", name).as_str(), 1) as u64),
+            duration: Duration::from_secs(duration),
             sync: cfg.lookup_boolean_or(
                 format!("{}.sync", name).as_str(), false),
             command: String::from(path),
@@ -230,39 +239,20 @@ fn lookup_format_entry(cfg: &Config,
 #[derive(Debug)]
 struct Timer {
     /// Time interval between invocations.
-    duration: StdDuration,
+    duration: Duration,
     /// Sync to full minute on first/second iteration.
-    sync: bool, // TODO
+    sync: bool,
     /// The command as a path buffer
     command: String,
 }
 
 impl Timer {
-    /*/// Run a timer input handler.
-    ///
-    /// Spawned in a separate thread, return a message for each time the
-    /// command gets executed between sleep periods.
-    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        if self.sync {
-            let now = now();
-            let first_wait = (Duration::seconds((60 - now.tm_sec - 1) as i64) +
-                Duration::nanoseconds(((10^9) - now.tm_nsec - 1) as i64))
-                .to_std().unwrap();
-            self.execute(index, &tx);
-            thread::sleep(first_wait);
-        }
-        loop {
-            self.execute(index, &tx);
-            thread::sleep(self.duration);
-        }
-    }*/
-
     /// Execute one iteration of the command.
-    fn execute(&self, index: usize, tx: &mpsc::Sender<(usize, String)>) {
+    fn execute(&self, index: usize, tx: &Channel) {
         if let Ok(output) = Command::new("sh")
             .args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
-                let _ = tx.send((index, s));
+                let _ = tx.send(vec![(index, s)]);
             }
 
             macro_rules! err {
@@ -285,7 +275,8 @@ impl Timer {
     }
 }
 
-#[derive(PartialEq, Eq)]
+/// A type used to order events coming from `Timer`s.
+#[derive(Debug, PartialEq, Eq)]
 struct Entry(Instant, usize);
 
 impl PartialOrd for Entry {
@@ -310,14 +301,14 @@ impl Ord for Entry {
 
 /// A Set of timers, that get fired by a special worker thread.
 #[derive(Debug)]
-pub struct TimerSet {
+struct TimerSet {
     /// The actual timers and some info to direct their output.
     timers: Vec<(usize, Timer)>,
 }
 
 impl TimerSet {
-    /// Run a worker thread.
-    pub fn run(&self, tx: mpsc::Sender<(usize, String)>) {
+    /// Run a worker thread handling `Timer`s.
+    pub fn run(&self, tx: Channel) {
         let len = self.timers.len();
         let start_time = Instant::now();
         let mut heap = BinaryHeap::with_capacity(len);
@@ -331,9 +322,12 @@ impl TimerSet {
             if timestamp > now {
                 thread::sleep(timestamp - now);
             }
+
             if let Some(&(target_index, ref timer)) = self.timers.get(index) {
                 timer.execute(target_index, &tx);
                 heap.push(Entry(timestamp + timer.duration, index));
+            } else {
+                panic!("data corruption");
             }
         }
     }
@@ -346,49 +340,51 @@ struct Fifo {
     path: PathBuf,
 }
 
-impl Fifo {
-    /// Run a FIFO input handler.
-    ///
-    /// Spawned in a separate thread, return a message with a given index
-    /// for each line received.
-    pub fn run(&self, index: usize, tx: mpsc::Sender<(usize, String)>) {
-        if let Ok(f) =
-            OpenOptions::new().read(true).write(true).open(&self.path) {
-            // we open the file in read-write mode to prevent our poll()
-            // hack from sending us `POLLHUP`s when no process is at the
-            // other end of the pipe, so it blocks either way.
-            let mut file = BufReader::new(f);
-            let mut buf = Vec::new();
-            let mut pollfd = setup_pollfd(file.get_ref());
-            loop {
-                wait_for_data(&mut pollfd);
-                if file.read_until(0xA, &mut buf).is_ok() {
-                    if let Some(&c) = buf.last() {
-                        if c == 0xA { let _ = buf.pop(); }
-                        if let Ok(s) = String::from_utf8(buf) {
-                            let _ = tx.send((index, s));
-                        }
-                        buf = Vec::new();
-                    }
-                }
+#[derive(Debug)]
+struct FifoSet {
+    /// The actual FIFOs and some info to direct their output.
+    fifos: Vec<(usize, Fifo)>,
+}
+
+impl FifoSet {
+    /// Run a worker thread handling `FIFO`s.
+    pub fn run(&self, tx: Channel) {
+        let len = self.fifos.len();
+        let mut fds = Vec::with_capacity(len);
+        let mut buffers = Vec::with_capacity(len);
+
+        for &(index, ref fifo) in &self.fifos {
+            if let Ok(f) =
+                OpenOptions::new().read(true).write(true).open(&fifo.path) {
+                // we open the file in read-write mode to prevent our poll()
+                // hack from sending us `POLLHUP`s when no process is at the
+                // other end of the pipe, so it blocks either way.
+                fds.push(poll::setup_pollfd(&f));
+                buffers.push(FileBuffer(Vec::new(), BufReader::new(f), index));
+            } else {
+                panic!("file could not be opened");
             }
-        } else {
-            panic!("file could not be opened");
+        }
+
+        while poll::poll(&mut fds) {
+            let _ = tx.send(poll::get_lines(&fds, &mut buffers));
         }
     }
 }
 
 /// An Output buffer.
 #[derive(Debug)]
-pub struct Buffer {
+struct Buffer {
     /// Format as a vector of strings that can be adressed (and changed)
     format: Vec<String>,
 }
 
 impl Buffer {
     /// Set the value at a given index.
-    fn set(&mut self, index: usize, value: String) {
-        self.format[index] = value.replace('\n', "");
+    fn set(&mut self, mut updates: Vec<(usize,String)>) {
+        for (index, value) in updates.drain(..) {
+            self.format[index] = value.replace('\n', "");
+        }
     }
 
     /// Format everything
