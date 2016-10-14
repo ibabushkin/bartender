@@ -8,6 +8,7 @@ use std::env;
 use std::io::Write;
 use std::path::Path;
 
+#[macro_use]
 pub mod bartender;
 pub mod poll;
 
@@ -52,13 +53,9 @@ fn main() {
 
     match config {
         Ok(config) => {
-            let _ = writeln!(&mut std::io::stderr(),
-                "obtained config: {:?}", config);
+            err!("obtained config: {:?}", config);
             config.run()
         },
-        Err(e) => {
-            let _ = writeln!(&mut std::io::stderr(),
-                "error reading config: {}", e);
-        },
+        Err(e) => err!("error reading config: {}", e),
     }
 }
