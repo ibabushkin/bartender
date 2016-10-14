@@ -3,6 +3,15 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
+#[macro_export]
+macro_rules! err {
+    ($format:expr, $($arg:expr),*) => {{
+        use std::io::stderr;
+        let _ =
+            writeln!(&mut stderr(), $format, $($arg),*);
+    }}
+}
+
 // a rather hackish wrapper around `poll` for proper I/O on FIFOs
 use poll;
 use poll::FileBuffer;
@@ -21,6 +30,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::io::prelude::*;
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path,PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
@@ -256,14 +266,6 @@ impl Timer {
                 let _ = tx.send(vec![(index, s)]);
             }
 
-            macro_rules! err {
-                ($format:expr, $($arg:expr),*) => {{
-                    use std::io::stderr;
-                    let _ =
-                        writeln!(&mut stderr(), $format, $($arg),*);
-                }}
-            }
-
             match output.status.code() {
                 Some(0) => (),
                 Some(c) =>
@@ -364,10 +366,18 @@ impl FifoSet {
                 // we open the file in read-write mode to prevent our poll()
                 // hack from sending us `POLLHUP`s when no process is at the
                 // other end of the pipe, so it blocks either way.
-                fds.push(poll::setup_pollfd(&f));
-                buffers.push(FileBuffer(Vec::new(), BufReader::new(f), index));
+                match f.metadata().map(|m| m.file_type().is_fifo()) {
+                    Ok(true) => {
+                        fds.push(poll::setup_pollfd(&f));
+                        buffers.push(FileBuffer(Vec::new(),
+                            BufReader::new(f), index));
+                    },
+                    _ => {
+                        err!("{:?} is not a FIFO", fifo.path);
+                    },
+                }
             } else {
-                panic!("file could not be opened");
+                err!("file {:?} could not be opened", fifo.path);
             }
         }
 
