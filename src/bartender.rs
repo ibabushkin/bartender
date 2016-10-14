@@ -35,8 +35,8 @@ use std::path::{Path,PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
-use std::time::Instant;
+
+use time::{Duration,SteadyTime,Timespec,get_time};
 
 /// A channel we send our messages through.
 type Channel = mpsc::Sender<Vec<(usize, String)>>;
@@ -215,8 +215,8 @@ fn get_nested_child<'a>(s: &'a HashMap<String, Setting>, name: &str)
 
 /// Look up a format entry by name - helper.
 fn lookup_format_entry(cfg: &Config,
-                       timers: &mut Vec<(usize, Timer)>,
-                       fifos: &mut Vec<(usize, Fifo)>,
+                       timers: &mut Vec<Timer>,
+                       fifos: &mut Vec<Fifo>,
                        name: &str, index: usize)
     -> ConfigResult<()> {
     let t = try!(get_child(&cfg, &name, "type"));
@@ -224,22 +224,22 @@ fn lookup_format_entry(cfg: &Config,
         let path = try!(get_child(&cfg, &name, "command"));
         let path2 = format!("{}.seconds", name);
         let duration = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
-            d as u64
+            d as i64
         } else {
-            cfg.lookup_integer64_or(path2.as_str(), 1) as u64
+            cfg.lookup_integer64_or(path2.as_str(), 1)
         };
-        timers.push((index, Timer {
-            duration: Duration::from_secs(duration),
-            sync: cfg.lookup_boolean_or(
-                format!("{}.sync", name).as_str(), false),
+        timers.push(Timer {
+            period: Duration::seconds(duration),
             command: String::from(path),
-        }));
+            position: index
+        });
         Ok(())
     } else if t == "fifo" {
         let path = try!(get_child(&cfg, &name, "fifo_path"));
-        fifos.push((index, Fifo {
+        fifos.push(Fifo {
             path: try!(parse_path(path)),
-        }));
+            position: index,
+        });
         Ok(())
     } else {
         Err(ConfigurationError::IllegalType(String::from(name)))
@@ -247,23 +247,23 @@ fn lookup_format_entry(cfg: &Config,
 }
 
 /// A timer source.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Timer {
     /// Time interval between invocations.
-    duration: Duration,
-    /// Sync to full minute on first/second iteration.
-    sync: bool,
+    period: Duration,
     /// The command as a path buffer
     command: String,
+    /// Where to write the output to
+    position: usize
 }
 
 impl Timer {
     /// Execute one iteration of the command.
-    fn execute(&self, index: usize, tx: &Channel) {
+    fn execute(&self, tx: &Channel) {
         if let Ok(output) = Command::new("sh")
             .args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
-                let _ = tx.send(vec![(index, s)]);
+                let _ = tx.send(vec![(self.position, s)]);
             }
 
             match output.status.code() {
@@ -280,29 +280,29 @@ impl Timer {
 
 /// A type used to order events coming from `Timer`s.
 #[derive(Debug, PartialEq, Eq)]
-struct Entry {
-    time: Instant,
-    index: usize
+struct Entry<'a> {
+    time: SteadyTime,
+    timer: &'a Timer,
 }
 
-impl PartialOrd for Entry {
+impl<'a> PartialOrd for Entry<'a> {
     fn partial_cmp(&self, other: &Entry) -> Option<Ordering> {
-        if self.time == other.time {
-            self.index.partial_cmp(&other.index).map(|c| c.reverse())
-        } else {
-            self.time.partial_cmp(&other.time).map(|c| c.reverse())
-        }
+        //if self.time == other.time {
+        //    self.timer.partial_cmp(&other.index).map(|c| c.reverse())
+        //} else {
+        self.time.partial_cmp(&other.time).map(|c| c.reverse())
+        //}
     }
 }
 
-impl Ord for Entry {
+impl<'a> Ord for Entry<'a> {
     fn cmp(&self, other: &Entry) -> Ordering {
         // entries with the lowest time should come up first:
-        if self.time == other.time {
-            self.index.cmp(&other.index).reverse()
-        } else {
-            self.time.cmp(&other.time).reverse()
-        }
+        //if self.time == other.time {
+        //    self.index.cmp(&other.index).reverse()
+        //} else {
+        self.time.cmp(&other.time).reverse()
+        //}
     }
 }
 
@@ -310,32 +310,39 @@ impl Ord for Entry {
 #[derive(Debug)]
 struct TimerSet {
     /// The actual timers and some info to direct their output.
-    timers: Vec<(usize, Timer)>,
+    timers: Vec<Timer>,
 }
 
 impl TimerSet {
     /// Run a worker thread handling `Timer`s.
     pub fn run(&self, tx: Channel) {
         let len = self.timers.len();
-        let start_time = Instant::now();
+        let start_time = SteadyTime::now();
         let mut heap = BinaryHeap::with_capacity(len);
 
-        for index in 0..len {
-            heap.push(Entry{ time: start_time, index: index });
+        for timer in &self.timers {
+            heap.push(Entry{ time: start_time, timer: timer });
         }
 
-        while let Some(Entry{ time: timestamp, index }) = heap.pop() {
-            let now = Instant::now();
-            if timestamp > now {
-                thread::sleep(timestamp - now);
+        while let Some(Entry{ time, timer }) = heap.pop() {
+            let now = SteadyTime::now();
+
+            // we're not late
+            if time > now {
+                let period = timer.period.num_seconds();
+                let sys_now = get_time();
+                let max_next = (sys_now + (time - now)).sec;
+                let next =
+                    Timespec::new(max_next - (max_next % period as i64), 0);
+
+                let sleep_for = next - sys_now;
+                if sleep_for > Duration::seconds(0) {
+                    thread::sleep(sleep_for.to_std().unwrap());
+                }
             }
 
-            if let Some(&(target_index, ref timer)) = self.timers.get(index) {
-                timer.execute(target_index, &tx);
-                heap.push(Entry{ time: timestamp + timer.duration, index: index });
-            } else {
-                panic!("data corruption");
-            }
+            timer.execute(&tx);
+            heap.push(Entry{ time: time + timer.period, timer: timer });
         }
     }
 }
@@ -345,12 +352,14 @@ impl TimerSet {
 struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
+    /// Where to write the output to
+    position: usize
 }
 
 #[derive(Debug)]
 struct FifoSet {
     /// The actual FIFOs and some info to direct their output.
-    fifos: Vec<(usize, Fifo)>,
+    fifos: Vec<Fifo>,
 }
 
 impl FifoSet {
@@ -360,7 +369,7 @@ impl FifoSet {
         let mut fds = Vec::with_capacity(len);
         let mut buffers = Vec::with_capacity(len);
 
-        for &(index, ref fifo) in &self.fifos {
+        for fifo in &self.fifos {
             if let Ok(f) =
                 OpenOptions::new().read(true).write(true).open(&fifo.path) {
                 // we open the file in read-write mode to prevent our poll()
@@ -370,7 +379,7 @@ impl FifoSet {
                     Ok(true) => {
                         fds.push(poll::setup_pollfd(&f));
                         buffers.push(FileBuffer(Vec::new(),
-                            BufReader::new(f), index));
+                            BufReader::new(f), fifo.position));
                     },
                     _ => {
                         err!("{:?} is not a FIFO", fifo.path);

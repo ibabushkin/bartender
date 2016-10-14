@@ -4,6 +4,10 @@ format = (
     },
     " ",
     {
+        name = "entry_a2";
+    },
+    " ",
+    {
         name = "entry_b";
         default = "some value";
     },
@@ -13,9 +17,14 @@ format = (
 // this is a timer entry
 entry_a = {
     type = "timer";
-    seconds = 2;
-    sync = true;
-    command = "~/dotfiles/timer_a.sh";
+    seconds = 1;
+    command = "date +%H:%M:%S.%N";
+};
+
+entry_a2 = {
+    type = "timer";
+    seconds = 1;
+    command = "date +%H:%M:%S.%N";
 };
 
 // this is a FIFO entry

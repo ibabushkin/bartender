@@ -1,6 +1,7 @@
 extern crate config;
 extern crate getopts;
 extern crate libc;
+extern crate time;
 
 use getopts::Options;
 
