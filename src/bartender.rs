@@ -118,6 +118,7 @@ impl Configuration {
 }
 
 /// An error that occured during setup.
+#[derive(Debug)]
 pub enum ConfigurationError {
     /// The file could not be parsed.
     ParsingError(ConfigError),
@@ -277,24 +278,28 @@ impl Timer {
 
 /// A type used to order events coming from `Timer`s.
 #[derive(Debug, PartialEq, Eq)]
-struct Entry(Instant, usize);
+struct Entry {
+    time: Instant,
+    index: usize
+}
 
 impl PartialOrd for Entry {
     fn partial_cmp(&self, other: &Entry) -> Option<Ordering> {
-        if self.0 == other.0 {
-            self.1.partial_cmp(&other.1).map(|c| c.reverse())
+        if self.time == other.time {
+            self.index.partial_cmp(&other.index).map(|c| c.reverse())
         } else {
-            self.0.partial_cmp(&other.0).map(|c| c.reverse())
+            self.time.partial_cmp(&other.time).map(|c| c.reverse())
         }
     }
 }
 
 impl Ord for Entry {
     fn cmp(&self, other: &Entry) -> Ordering {
-        if self.0 == other.0 {
-            self.1.cmp(&other.1).reverse()
+        // entries with the lowest time should come up first:
+        if self.time == other.time {
+            self.index.cmp(&other.index).reverse()
         } else {
-            self.0.cmp(&other.0).reverse()
+            self.time.cmp(&other.time).reverse()
         }
     }
 }
@@ -314,10 +319,10 @@ impl TimerSet {
         let mut heap = BinaryHeap::with_capacity(len);
 
         for index in 0..len {
-            heap.push(Entry(start_time, index));
+            heap.push(Entry{ time: start_time, index: index });
         }
 
-        while let Some(Entry(timestamp, index)) = heap.pop() {
+        while let Some(Entry{ time: timestamp, index }) = heap.pop() {
             let now = Instant::now();
             if timestamp > now {
                 thread::sleep(timestamp - now);
@@ -325,7 +330,7 @@ impl TimerSet {
 
             if let Some(&(target_index, ref timer)) = self.timers.get(index) {
                 timer.execute(target_index, &tx);
-                heap.push(Entry(timestamp + timer.duration, index));
+                heap.push(Entry{ time: timestamp + timer.duration, index: index });
             } else {
                 panic!("data corruption");
             }
