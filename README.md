@@ -45,7 +45,8 @@ tagset = {
 
 clock = {
     type = "timer"; // the time changes once a minute
-    seconds = 60;
+    minutes = 1; // other valid keys are `seconds` and `hours`. You can use any
+                 // combination of keys.
     sync = true; // sync second invocation to full minute
     command = "~/dotfiles/clock.sh";
 };

@@ -24,8 +24,8 @@ clock = {
 
 calendar = {
     type = "timer";
-    seconds = 86400; // 24 hours
-    command = "date +%F"; 
+    hours = 24;
+    command = "date +%F";
 };
 
 // this is a FIFO entry

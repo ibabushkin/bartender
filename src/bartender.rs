@@ -228,14 +228,29 @@ fn lookup_format_entry(cfg: &Config,
     if t == "timer" {
         let path = try!(get_child(&cfg, &name, "command"));
         let path2 = format!("{}.seconds", name);
-        let duration = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
+        let path3 = format!("{}.minutes", name);
+        let path4 = format!("{}.hours", name);
+        let seconds = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
             d as i64
         } else {
-            cfg.lookup_integer64_or(path2.as_str(), 1)
+            cfg.lookup_integer64_or(path2.as_str(), 0)
         };
-        if duration > 0 {
+        let minutes = if let Some(d) = cfg.lookup_integer32(path3.as_str()) {
+            d as i64
+        } else {
+            cfg.lookup_integer64_or(path3.as_str(), 0)
+        };
+        let hours = if let Some(d) = cfg.lookup_integer32(path4.as_str()) {
+            d as i64
+        } else {
+            cfg.lookup_integer64_or(path4.as_str(), 0)
+        };
+        let duration = Duration::hours(hours) +
+            Duration::minutes(minutes) + Duration::seconds(seconds);
+
+        if duration > Duration::seconds(0) {
             timers.push(Timer {
-                period: Duration::seconds(duration),
+                period: duration,
                 command: String::from(path),
                 position: index
             });
