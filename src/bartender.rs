@@ -160,7 +160,7 @@ impl fmt::Display for ConfigurationError {
             ConfigurationError::IllegalType(ref t) =>
                 write!(f, "{} is not a valid `type` value", t),
             ConfigurationError::IllegalValue(ref t) =>
-                write!(f, "{} is not a valid timespan.", t),
+                write!(f, "{} should specify a positive timespan.", t),
             ConfigurationError::NoHome =>
                 write!(f, "no home directory found"),
         }
