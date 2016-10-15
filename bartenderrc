@@ -1,34 +1,35 @@
 format = (
+    "time: ",
     {
-        name = "entry_a";
+        name = "clock";
+    },
+    ", date: ",
+    {
+        name = "calendar";
     },
     " ",
     {
-        name = "entry_a2";
-    },
-    " ",
-    {
-        name = "entry_b";
+        name = "fifo_entry";
         default = "some value";
     },
     " - and some static stuff"
 );
 
 // this is a timer entry
-entry_a = {
+clock = {
     type = "timer";
-    seconds = 1;
+    seconds = 5;
     command = "date +%H:%M:%S.%N";
 };
 
-entry_a2 = {
+calendar = {
     type = "timer";
-    seconds = 1;
-    command = "date +%H:%M:%S.%N";
+    seconds = 86400; // 24 hours
+    command = "date +%F"; 
 };
 
 // this is a FIFO entry
-entry_b = {
+fifo_entry = {
     type = "fifo";
     fifo_path = "~/tmp/entry_b_fifo";
 };
