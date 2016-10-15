@@ -23,14 +23,14 @@ pub fn poll(fds: &mut [libc::pollfd]) -> bool {
 
 /// A wrapped `BufReader` only yielding complete lines, annotated with
 /// an index.
-pub struct FileBuffer(pub Vec<u8>, pub BufReader<File>, pub usize);
+pub struct FileBuffer(pub Vec<u8>, pub BufReader<File>, pub String);
 
 /// Fill some buffers from a set of previously `poll`ed filedsecriptors.
 pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
-    -> Vec<(usize, String)> {
+    -> Vec<(String, String)> {
     let fd_len = fds.len();
     let mut res = Vec::with_capacity(fd_len);
-    for (fd, &mut FileBuffer(ref mut buf, ref mut reader, index)) in
+    for (fd, &mut FileBuffer(ref mut buf, ref mut reader, ref name)) in
         fds.iter().zip(buffers) {
         if fd.fd != reader.get_ref().as_raw_fd() {
             panic!("mismatched FileBuffer");
@@ -40,7 +40,7 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
             if let Some(&c) = buf.last() {
                 if c == 0xA { let _ = buf.pop(); }
                 if let Ok(s) = String::from_utf8(buf.clone()) {
-                    res.push((index, s));
+                    res.push((name.clone(), s));
                 }
                 buf.clear();
             }

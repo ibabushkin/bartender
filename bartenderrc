@@ -1,18 +1,14 @@
-format = (
-    {
-        name = "entry_a";
-    },
-    " ",
-    {
-        name = "entry_a2";
-    },
-    " ",
-    {
-        name = "entry_b";
-        default = "some value";
-    },
-    " - and some static stuff"
-);
+{{! Our format string: }}
+{{{ entry_a }}}
+ {{{ entry_a2 }}}
+ {{{ entry_b }}}
+{{^ entry_b }}
+some value
+{{/entry_b}}
+ - and some static stuff
+================ BARTENDER-SNIP ================
+
+workaround = {
 
 // this is a timer entry
 entry_a = {
@@ -31,4 +27,6 @@ entry_a2 = {
 entry_b = {
     type = "fifo";
     fifo_path = "~/tmp/entry_b_fifo";
+};
+
 };

@@ -17,9 +17,10 @@ use poll;
 use poll::FileBuffer;
 
 // machinery to parse config file
+use mustache::{compile_str, Template};
 use config::error::ConfigError;
-use config::reader::from_file;
-use config::types::{Config,ScalarValue,Setting,Value};
+use config::reader::from_str;
+use config::types::{Config,Value};
 
 // I/O stuff for the heavy lifting, path lookup and similar things
 use std::cmp::Ordering;
@@ -27,8 +28,8 @@ use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::env::home_dir;
 use std::fmt;
-use std::fs::OpenOptions;
-use std::io::BufReader;
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, Error as IoError, stdout};
 use std::io::prelude::*;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path,PathBuf};
@@ -39,15 +40,15 @@ use std::thread;
 use time::{Duration,SteadyTime,Timespec,get_time};
 
 /// A channel we send our messages through.
-type Channel = mpsc::Sender<Vec<(usize, String)>>;
+type Channel = mpsc::Sender<Vec<(String, String)>>;
 
 /// Configuration data.
 ///
 /// Holds a number of input sources as well as an output buffer.
 #[derive(Debug)]
 pub struct Configuration {
-    /// output buffer
-    buffer: Buffer,
+    format_template: Template,
+    last_input_results: HashMap<String, String>,
     /// all timer sources
     timers: TimerSet,
     /// all FIFO sources
@@ -58,40 +59,27 @@ impl Configuration {
     /// Parse a config file and return a result.
     pub fn from_config_file(file: &Path) -> ConfigResult<Configuration> {
         // attempt to parse configuration file
-        let cfg = try!(parse_config_file(file));
+        let (template, cfg) = try!(parse_config_file(file));
 
         // variables used for temporary storage and buildup of values
-        let mut format_string = Vec::new();
+        //let mut format_string = Vec::new();
         let mut timers = Vec::new();
         let mut fifos = Vec::new();
 
-        // parse format information from config file
-        let format =
-            if let Some(&Value::List(ref l)) = cfg.lookup("format") {
-                l
-            } else {
-                return Err(ConfigurationError::MissingFormat);
-            };
-
-        // iterate over format entries and store them
-        for entry in format {
-            match *entry {
-                Value::Svalue(ScalarValue::Str(ref s)) =>
-                    format_string.push(s.clone()),
-                Value::Group(ref s) => {
-                    let name = try!(get_nested_child(s, "name"));
-                    try!(lookup_format_entry(&cfg, &mut timers, &mut fifos,
-                                             name, format_string.len()));
-                    let d = get_nested_child(s, "default").unwrap_or("");
-                    format_string.push(String::from(d));
-                },
-                _ => return Err(ConfigurationError::IllegalFormat),
+        let inputs = match cfg.lookup("workaround").unwrap() {
+            &Value::Group(ref i) => i,
+            _ => {
+                panic!();
             }
+        };
+        for name in inputs.keys() {
+            try!(lookup_format_entry(&cfg, &mut timers, &mut fifos, name.as_str()));
         }
 
         // return the results
         Ok(Configuration {
-            buffer: Buffer { format: format_string },
+            format_template: template,
+            last_input_results: HashMap::new(),
             timers: TimerSet { timers: timers },
             fifos: FifoSet { fifos: fifos },
         })
@@ -120,9 +108,11 @@ impl Configuration {
             });
         }
 
-        for update in rx.iter() {
-            self.buffer.set(update);
-            self.buffer.output();
+        for updates in rx.iter() {
+            for (name, value) in updates {
+                self.last_input_results.insert(name, value);
+            }
+            self.format_template.render(&mut stdout(), &self.last_input_results).unwrap();
         }
     }
 }
@@ -130,6 +120,10 @@ impl Configuration {
 /// An error that occured during setup.
 #[derive(Debug)]
 pub enum ConfigurationError {
+    /// The file is inaccessible.
+    Inaccessible(IoError),
+    /// No snip line found.
+    NoSnip,
     /// The file could not be parsed.
     ParsingError(ConfigError),
     /// No format is specified in file.
@@ -149,6 +143,10 @@ pub enum ConfigurationError {
 impl fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
+            ConfigurationError::Inaccessible(ref io_error) =>
+                write!(f, "file is inaccessible: {}", io_error),
+            ConfigurationError::NoSnip =>
+                write!(f, "no {} found", SNIP_BY),
             ConfigurationError::ParsingError(ref c) =>
                 write!(f, "parsing error: {}", c),
             ConfigurationError::MissingFormat =>
@@ -170,11 +168,36 @@ impl fmt::Display for ConfigurationError {
 /// Result wrapper.
 type ConfigResult<T> = Result<T, ConfigurationError>;
 
+const SNIP_BY: &'static str = "================ BARTENDER-SNIP ================";
+
 /// Parse a configuration file - helper.
-fn parse_config_file(file: &Path) -> ConfigResult<Config> {
-    match from_file(file) {
-        Ok(cfg) => Ok(cfg),
-        Err(e) => Err(ConfigurationError::ParsingError(e)),
+fn parse_config_file(path: &Path) -> ConfigResult<(Template, Config)> {
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut content = String::new();
+            file.read_to_string(&mut content).unwrap();
+            let mut split = content.splitn(2, SNIP_BY);
+            let format_template_str = split.next().unwrap();
+            let input_cfg_str = match split.next() {
+                Some(c) => c,
+                None => {
+                    return Err(ConfigurationError::NoSnip);
+                }
+            };
+            let mut joined_template_string = format_template_str.replace("\n", "");
+            joined_template_string.push('\n');
+            let template = compile_str(joined_template_string.as_str());
+            let input_cfg = match from_str(input_cfg_str) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    return Err(ConfigurationError::ParsingError(e));
+                }
+            };
+            Ok((template, input_cfg))
+        },
+        Err(io_error) => {
+            Err(ConfigurationError::Inaccessible(io_error))
+        }
     }
 }
 
@@ -205,29 +228,17 @@ fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
     }
 }
 
-/// Get a child element from a nested entry in format specifier - helper.
-fn get_nested_child<'a>(s: &'a HashMap<String, Setting>, name: &str)
-    -> ConfigResult<&'a str> {
-    if let Some(&Setting {
-        value: Value::Svalue(ScalarValue::Str(ref val)),
-        ..
-    }) = s.get(name) {
-        Ok(val)
-    } else {
-        Err(ConfigurationError::IllegalFormat)
-    }
-}
-
 /// Look up a format entry by name - helper.
 fn lookup_format_entry(cfg: &Config,
                        timers: &mut Vec<Timer>,
                        fifos: &mut Vec<Fifo>,
-                       name: &str, index: usize)
+                       name: &str)
     -> ConfigResult<()> {
-    let t = try!(get_child(&cfg, &name, "type"));
+    let workaround_name = format!("workaround.{}", name);
+    let t = try!(get_child(&cfg, workaround_name.as_str(), "type"));
     if t == "timer" {
-        let path = try!(get_child(&cfg, &name, "command"));
-        let path2 = format!("{}.seconds", name);
+        let path = try!(get_child(&cfg, workaround_name.as_str(), "command"));
+        let path2 = format!("{}.seconds", workaround_name);
         let duration = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
             d as i64
         } else {
@@ -237,17 +248,17 @@ fn lookup_format_entry(cfg: &Config,
             timers.push(Timer {
                 period: Duration::seconds(duration),
                 command: String::from(path),
-                position: index
+                name: String::from(name)
             });
             Ok(())
         } else {
             Err(ConfigurationError::IllegalValue(String::from(name)))
         }
     } else if t == "fifo" {
-        let path = try!(get_child(&cfg, &name, "fifo_path"));
+        let path = try!(get_child(&cfg, &workaround_name, "fifo_path"));
         fifos.push(Fifo {
             path: try!(parse_path(path)),
-            position: index,
+            name: String::from(name),
         });
         Ok(())
     } else {
@@ -263,7 +274,7 @@ struct Timer {
     /// The command as a path buffer
     command: String,
     /// Where to write the output to
-    position: usize
+    name: String
 }
 
 impl Timer {
@@ -272,7 +283,7 @@ impl Timer {
         if let Ok(output) = Command::new("sh")
             .args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
-                let _ = tx.send(vec![(self.position, s)]);
+                let _ = tx.send(vec![(self.name.clone(), s.replace('\n', ""))]);
             }
 
             match output.status.code() {
@@ -362,7 +373,7 @@ struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
     /// Where to write the output to
-    position: usize
+    name: String
 }
 
 #[derive(Debug)]
@@ -388,7 +399,7 @@ impl FifoSet {
                     Ok(true) => {
                         fds.push(poll::setup_pollfd(&f));
                         buffers.push(FileBuffer(Vec::new(),
-                            BufReader::new(f), fifo.position));
+                            BufReader::new(f), fifo.name.clone()));
                     },
                     _ => {
                         err!("{:?} is not a FIFO", fifo.path);
@@ -405,23 +416,3 @@ impl FifoSet {
     }
 }
 
-/// An Output buffer.
-#[derive(Debug)]
-struct Buffer {
-    /// Format as a vector of strings that can be adressed (and changed)
-    format: Vec<String>,
-}
-
-impl Buffer {
-    /// Set the value at a given index.
-    fn set(&mut self, mut updates: Vec<(usize,String)>) {
-        for (index, value) in updates.drain(..) {
-            self.format[index] = value.replace('\n', "");
-        }
-    }
-
-    /// Format everything
-    fn output(&self) {
-        println!("{}", self.format.join(""));
-    }
-}
