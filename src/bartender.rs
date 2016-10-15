@@ -140,6 +140,9 @@ pub enum ConfigurationError {
     MissingChild(String, String),
     /// A `type` value of a nested entry has an illegal value.
     IllegalType(String),
+    /// A `seconds` value was non-positive.
+    IllegalValue(String),
+    /// No home directory was found.
     NoHome,
 }
 
@@ -156,6 +159,8 @@ impl fmt::Display for ConfigurationError {
                 write!(f, "object {} misses child {}", p, c),
             ConfigurationError::IllegalType(ref t) =>
                 write!(f, "{} is not a valid `type` value", t),
+            ConfigurationError::IllegalValue(ref t) =>
+                write!(f, "{} is not a valid timespan.", t),
             ConfigurationError::NoHome =>
                 write!(f, "no home directory found"),
         }
@@ -228,12 +233,16 @@ fn lookup_format_entry(cfg: &Config,
         } else {
             cfg.lookup_integer64_or(path2.as_str(), 1)
         };
-        timers.push(Timer {
-            period: Duration::seconds(duration),
-            command: String::from(path),
-            position: index
-        });
-        Ok(())
+        if duration > 0 {
+            timers.push(Timer {
+                period: Duration::seconds(duration),
+                command: String::from(path),
+                position: index
+            });
+            Ok(())
+        } else {
+            Err(ConfigurationError::IllegalValue(String::from(name)))
+        }
     } else if t == "fifo" {
         let path = try!(get_child(&cfg, &name, "fifo_path"));
         fifos.push(Fifo {
