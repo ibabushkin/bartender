@@ -1,30 +1,30 @@
 {{! Our format string: }}
-{{{ entry_a }}}
- {{{ entry_a2 }}}
- {{{ entry_b }}}
-{{^ entry_b }}
+{{{ clock }}}
+ {{{ calendar }}}
+ {{{ fifo_entry }}}
+{{^ fifo_entry }}
 some value
-{{/entry_b}}
+{{/fifo_entry}}
  - and some static stuff
 ================ BARTENDER-SNIP ================
 
 workaround = {
 
 // this is a timer entry
-entry_a = {
+clock = {
     type = "timer";
-    seconds = 1;
+    seconds = 5;
     command = "date +%H:%M:%S.%N";
 };
 
-entry_a2 = {
+calendar = {
     type = "timer";
-    seconds = 1;
-    command = "date +%H:%M:%S.%N";
+    hours = 24;
+    command = "date +%F";
 };
 
 // this is a FIFO entry
-entry_b = {
+fifo_entry = {
     type = "fifo";
     fifo_path = "~/tmp/entry_b_fifo";
 };
