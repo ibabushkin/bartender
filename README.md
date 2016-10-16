@@ -25,40 +25,39 @@ synchronous (timers) and asynchronous (lines coming from a `FIFO`) input that
 gets passed to a simple formatting object and printed to `stdout` on updates.
 
 ## Examples?
-Sure. Here is my `~/.bartenderrc`:
-```
-format = (
-    "%{F#cccccc}%{B#005577}", // tagsets go on the left
-    {
-        name = "tagset"; // include output of object `tagset` here
-    },
-    "%{F#657b83}%{B#1c1c1c}%{r}", // the rest goes on the right
-    {
-        name = "clock"; // include output of object `clock` here
-    }
-);
+Sure. Here is a `~/.bartenderrc`, which is in TOML format and uses
+mustache templates for the output format:
+```TOML
+# our format string
+format = """
+{{! our format string }}
+{{{ clock }}}
+ {{{ calendar }}}
+ {{{ fifo_entry }}}
+{{^ fifo_entry }}
+some value
+{{/fifo_entry}}
+ - and some static stuff
+"""
 
-tagset = {
-    type = "fifo"; // tagsets are read on-demand from a `FIFO`
-    fifo_path = "~/tmp/tagset_fifo";
-};
+[timers.clock]
+# you can use `seconds`, `minutes`, `hours` or any combination therof to
+# specify the timer interval
+seconds = 5
+command = "date +%H:%M:%S.%N" # run this command at each interval
 
-clock = {
-    type = "timer"; // the time changes once a minute
-    minutes = 1; // other valid keys are `seconds` and `hours`. You can use any
-                 // combination of keys.
-    sync = true; // sync second invocation to full minute
-    command = "~/dotfiles/clock.sh";
-};
+[timers.calendar]
+hours = 24
+command = "date +%F"
+
+[fifos.fifo_entry]
+fifo_path = "~/tmp/entry_b_fifo"
+default = "some default string"
 ```
 
 Let's split it up and look how it functions. The config file *has* to define a
-list of name `format`. The values inside are of two types: static strings and
-objects with a `name` key. For each name key there should be a toplevel object,
-specifying all necessary data as shown above.
-
-The configuration syntax is documented
-[here](http://codinghighway.com/rust-config/config/).
+mustache template in a string of name `format`. The variables are filled from
+the timers and FIFOs, as evident above.
 
 Now, to actually run bartender, I have this snippet in my `~/.xinitrc`:
 ```sh
@@ -67,6 +66,4 @@ Now, to actually run bartender, I have this snippet in my `~/.xinitrc`:
 ```
 
 Granted, this is a pretty minimal configuration, but it serves pretty well for
-demonstration purposes. Note that
-[`gabelstaplerwm`](https://github.com/ibabushkin/gabelstaplerwm) outputs the tag
-data to `stdout` in my configuration.
+demonstration purposes.
