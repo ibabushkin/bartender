@@ -47,7 +47,9 @@ type Channel = mpsc::Sender<Vec<(String, String)>>;
 /// Holds a number of input sources as well as an output buffer.
 #[derive(Debug)]
 pub struct Configuration {
+    /// compiled format template
     format_template: Template,
+    /// current values passed to the template
     last_input_results: HashMap<String, String>,
     /// all timer sources
     timers: TimerSet,
@@ -62,12 +64,11 @@ impl Configuration {
         let (template, cfg) = try!(parse_config_file(file));
 
         // variables used for temporary storage and buildup of values
-        //let mut format_string = Vec::new();
         let mut timers = Vec::new();
         let mut fifos = Vec::new();
 
-        let inputs = match cfg.lookup("workaround").unwrap() {
-            &Value::Group(ref i) => i,
+        let inputs = match *cfg.lookup("workaround").unwrap() {
+            Value::Group(ref i) => i,
             _ => {
                 panic!();
             }
@@ -430,4 +431,3 @@ impl FifoSet {
         }
     }
 }
-
