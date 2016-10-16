@@ -1,8 +1,8 @@
-extern crate config;
 extern crate getopts;
 extern crate libc;
 extern crate mustache;
 extern crate time;
+extern crate toml;
 
 use getopts::Options;
 
@@ -14,7 +14,9 @@ use std::path::Path;
 pub mod bartender;
 pub mod poll;
 
-use bartender::Configuration;
+use bartender::Config;
+
+use bartender::dump_config;
 
 /// Main function.
 ///
@@ -42,11 +44,11 @@ fn main() {
 
     // obtain and parse config file
     let config = if let Some(path) = matches.opt_str("c") {
-        Configuration::from_config_file(Path::new(path.as_str()))
+        Config::from_config_file(Path::new(path.as_str()))
     } else if let Some(mut dir) = env::home_dir() {
         dir.push(".bartenderrc");
         match dir.canonicalize() {
-            Ok(path) => Configuration::from_config_file(path.as_path()),
+            Ok(path) => Config::from_config_file(path.as_path()),
             Err(err) => panic!("error: {}", err),
         }
     } else {
@@ -60,4 +62,5 @@ fn main() {
         },
         Err(e) => err!("error reading config: {}", e),
     }
+    dump_config(Path::new("bartenderrc.toml"));
 }

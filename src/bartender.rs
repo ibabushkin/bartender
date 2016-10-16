@@ -1,4 +1,4 @@
-//! Configuration Parser and Interpreter module.
+//! Config Parser and Interpreter module.
 //!
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
@@ -16,11 +16,7 @@ macro_rules! err {
 use poll;
 use poll::FileBuffer;
 
-// machinery to parse config file
 use mustache::{compile_str, Template};
-use config::error::ConfigError;
-use config::reader::from_str;
-use config::types::{Config,Value};
 
 // I/O stuff for the heavy lifting, path lookup and similar things
 use std::cmp::Ordering;
@@ -39,14 +35,17 @@ use std::thread;
 
 use time::{Duration,SteadyTime,Timespec,get_time};
 
+use toml;
+use toml::Value;
+
 /// A channel we send our messages through.
 type Channel = mpsc::Sender<Vec<(String, String)>>;
 
-/// Configuration data.
+/// Config data.
 ///
 /// Holds a number of input sources as well as an output buffer.
 #[derive(Debug)]
-pub struct Configuration {
+pub struct Config {
     /// compiled format template
     format_template: Template,
     /// current values passed to the template
@@ -57,30 +56,59 @@ pub struct Configuration {
     fifos: FifoSet,
 }
 
-impl Configuration {
+impl Config {
     /// Parse a config file and return a result.
-    pub fn from_config_file(file: &Path) -> ConfigResult<Configuration> {
+    pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
-        let (template, cfg) = try!(parse_config_file(file));
+        let cfg = try!(parse_config_file(file));
 
-        // variables used for temporary storage and buildup of values
-        let mut timers = Vec::new();
-        let mut fifos = Vec::new();
+        let mut inputs = HashMap::new();
 
-        let inputs = match *cfg.lookup("workaround").unwrap() {
-            Value::Group(ref i) => i,
-            _ => {
-                panic!();
-            }
-        };
-        for name in inputs.keys() {
-            try!(lookup_format_entry(&cfg, &mut timers, &mut fifos, name.as_str()));
-        }
+        let template =
+            if let Some(&Value::String(ref format)) = cfg.get("format") {
+                let mut s = format.replace("\n", "");
+                s.push('\n'); // TODO: wääh
+                compile_str(s.as_str())
+            } else {
+                return Err(ConfigError::MissingFormat);
+            };
+
+        // get the set of Timers
+        let timers =
+            if let Some(&Value::Table(ref timers)) = cfg.get("timers") {
+                let mut ts = Vec::with_capacity(timers.len());
+
+                for (name, timer) in timers {
+                    inputs.insert(name.clone(), String::from(""));
+                    ts.push(try!(Timer::from_config(name.clone(), &timer)));
+                }
+
+                ts
+            } else {
+                Vec::new()
+            };
+
+        // get the set of FIFOs
+        let fifos =
+            if let Some(&Value::Table(ref fifos)) = cfg.get("fifos") {
+                let mut fs = Vec::with_capacity(fifos.len());
+
+                for (name, fifo) in fifos {
+                    let (default, fifo) =
+                        try!(Fifo::from_config(name.clone(), &fifo));
+                    inputs.insert(name.clone(), default);
+                    fs.push(fifo);
+                }
+
+                fs
+            } else {
+                Vec::new()
+            };
 
         // return the results
-        Ok(Configuration {
+        Ok(Config {
             format_template: template,
-            last_input_results: HashMap::new(),
+            last_input_results: inputs,
             timers: TimerSet { timers: timers },
             fifos: FifoSet { fifos: fifos },
         })
@@ -120,86 +148,75 @@ impl Configuration {
 
 /// An error that occured during setup.
 #[derive(Debug)]
-pub enum ConfigurationError {
-    /// The file is inaccessible.
-    Inaccessible(IoError),
-    /// No snip line found.
-    NoSnip,
+pub enum ConfigError {
+    /// I/O error occured.
+    IOError(IoError),
+    /// File contains something other than UTF-8.
+    BadEncoding,
     /// The file could not be parsed.
-    ParsingError(ConfigError),
+    TomlError(Vec<toml::ParserError>),
     /// No format is specified in file.
     MissingFormat,
-    /// The format is malformatted (what irony).
-    IllegalFormat,
-    /// A nested entry is missing a child.
-    MissingChild(String, String),
-    /// A `type` value of a nested entry has an illegal value.
-    IllegalType(String),
-    /// A `seconds` value was non-positive.
-    IllegalValue(String),
+    /// Some value is missing.
+    Missing(String, Option<&'static str>),
+    /// A timer is malformatted.
+    IllegalValues(String),
     /// No home directory was found.
     NoHome,
 }
 
-impl fmt::Display for ConfigurationError {
+impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            ConfigurationError::Inaccessible(ref io_error) =>
-                write!(f, "file is inaccessible: {}", io_error),
-            ConfigurationError::NoSnip =>
-                write!(f, "no {} found", SNIP_BY),
-            ConfigurationError::ParsingError(ref c) =>
-                write!(f, "parsing error: {}", c),
-            ConfigurationError::MissingFormat =>
+            ConfigError::IOError(ref io_error) =>
+                write!(f, "I/O error occured: {}", io_error),
+            ConfigError::BadEncoding =>
+                write!(f, "file has to be UTF-8 encoded"),
+            ConfigError::TomlError(ref c) =>
+                write!(f, "parsing error: {:?}", c),
+            ConfigError::MissingFormat =>
                 write!(f, "no `format` list found"),
-            ConfigurationError::IllegalFormat =>
-                write!(f, "`format` list contains illegal entry"),
-            ConfigurationError::MissingChild(ref p, ref c) =>
-                write!(f, "object {} misses child {}", p, c),
-            ConfigurationError::IllegalType(ref t) =>
-                write!(f, "{} is not a valid `type` value", t),
-            ConfigurationError::IllegalValue(ref t) =>
-                write!(f, "{} should specify a positive timespan.", t),
-            ConfigurationError::NoHome =>
+            ConfigError::Missing(ref name, Some(sub)) =>
+                write!(f, "entity `{}` is missing child `{}` \
+                       (or it has the wrong type)", name, sub),
+            ConfigError::Missing(ref name, None) =>
+                write!(f, "entity `{}` is missing \
+                       (or it has the wrong type)", name),
+            ConfigError::IllegalValues(ref name) =>
+                write!(f, "timer `{}` doesn't have a positive period", name),
+            ConfigError::NoHome =>
                 write!(f, "no home directory found"),
         }
     }
 }
 
 /// Result wrapper.
-type ConfigResult<T> = Result<T, ConfigurationError>;
-
-const SNIP_BY: &'static str = "================ BARTENDER-SNIP ================";
+type ConfigResult<T> = Result<T, ConfigError>;
 
 /// Parse a configuration file - helper.
-fn parse_config_file(path: &Path) -> ConfigResult<(Template, Config)> {
+fn parse_config_file(path: &Path) -> ConfigResult<toml::Table> {
     match File::open(path) {
         Ok(mut file) => {
             let mut content = String::new();
-            file.read_to_string(&mut content).unwrap();
-            let mut split = content.splitn(2, SNIP_BY);
-            let format_template_str = split.next().unwrap();
-            let input_cfg_str = match split.next() {
-                Some(c) => c,
-                None => {
-                    return Err(ConfigurationError::NoSnip);
+            if file.read_to_string(&mut content).is_ok() {
+                let mut parser = toml::Parser::new(&content);
+                if let Some(value) = parser.parse() {
+                    Ok(value)
+                } else {
+                    Err(ConfigError::TomlError(parser.errors))
                 }
-            };
-            let mut joined_template_string = format_template_str.replace("\n", "");
-            joined_template_string.push('\n');
-            let template = compile_str(joined_template_string.as_str());
-            let input_cfg = match from_str(input_cfg_str) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    return Err(ConfigurationError::ParsingError(e));
-                }
-            };
-            Ok((template, input_cfg))
+            } else {
+                Err(ConfigError::BadEncoding)
+            }
         },
         Err(io_error) => {
-            Err(ConfigurationError::Inaccessible(io_error))
+            Err(ConfigError::IOError(io_error))
         }
     }
+}
+
+pub fn dump_config(path: &Path) {
+    println!("{:?}", parse_config_file(path).unwrap());
 }
 
 /// Parse a path - helper.
@@ -208,77 +225,10 @@ fn parse_path(path: &str) -> ConfigResult<PathBuf> {
         if let Some(dir) = home_dir() {
             Ok(dir.join(PathBuf::from(&path[2..])))
         } else {
-            Err(ConfigurationError::NoHome)
+            Err(ConfigError::NoHome)
         }
     } else {
         Ok(PathBuf::from(path))
-    }
-}
-
-/// Get a child element from a nested entry - helper.
-fn get_child<'a>(cfg: &'a Config, name: &str, child: &str)
-    -> ConfigResult<&'a str> {
-    if let Some(value) =
-        cfg.lookup_str(format!("{}.{}", name, child).as_str()) {
-        Ok(value)
-    } else {
-        Err(ConfigurationError::MissingChild(
-                String::from(name),
-                String::from(child)
-        ))
-    }
-}
-
-/// Look up a format entry by name - helper.
-fn lookup_format_entry(cfg: &Config,
-                       timers: &mut Vec<Timer>,
-                       fifos: &mut Vec<Fifo>,
-                       name: &str)
-    -> ConfigResult<()> {
-    let workaround_name = format!("workaround.{}", name);
-    let t = try!(get_child(&cfg, workaround_name.as_str(), "type"));
-    if t == "timer" {
-        let path = try!(get_child(&cfg, workaround_name.as_str(), "command"));
-        let path2 = format!("{}.seconds", workaround_name);
-        let path3 = format!("{}.minutes", workaround_name);
-        let path4 = format!("{}.hours", workaround_name);
-        let seconds = if let Some(d) = cfg.lookup_integer32(path2.as_str()) {
-            d as i64
-        } else {
-            cfg.lookup_integer64_or(path2.as_str(), 0)
-        };
-        let minutes = if let Some(d) = cfg.lookup_integer32(path3.as_str()) {
-            d as i64
-        } else {
-            cfg.lookup_integer64_or(path3.as_str(), 0)
-        };
-        let hours = if let Some(d) = cfg.lookup_integer32(path4.as_str()) {
-            d as i64
-        } else {
-            cfg.lookup_integer64_or(path4.as_str(), 0)
-        };
-        let duration = Duration::hours(hours) +
-            Duration::minutes(minutes) + Duration::seconds(seconds);
-
-        if duration > Duration::seconds(0) {
-            timers.push(Timer {
-                period: duration,
-                command: String::from(path),
-                name: String::from(name)
-            });
-            Ok(())
-        } else {
-            Err(ConfigurationError::IllegalValue(String::from(name)))
-        }
-    } else if t == "fifo" {
-        let path = try!(get_child(&cfg, &workaround_name, "fifo_path"));
-        fifos.push(Fifo {
-            path: try!(parse_path(path)),
-            name: String::from(name),
-        });
-        Ok(())
-    } else {
-        Err(ConfigurationError::IllegalType(String::from(name)))
     }
 }
 
@@ -294,6 +244,47 @@ struct Timer {
 }
 
 impl Timer {
+    fn from_config(name: String, config: &Value) -> ConfigResult<Timer> {
+        if let Value::Table(ref table) = *config {
+            let seconds =
+                if let Some(&Value::Integer(s)) = table.get("seconds") {
+                    s
+                } else { 0 };
+
+            let minutes =
+                if let Some(&Value::Integer(m)) = table.get("minutes") {
+                    m
+                } else { 0 };
+
+            let hours =
+                if let Some(&Value::Integer(h)) = table.get("hours") {
+                    h
+                } else { 0 };
+
+            let command =
+                if let Some(&Value::String(ref c)) = table.get("command") {
+                    c.clone()
+                } else {
+                    return Err(ConfigError::Missing(name, Some("command")));
+                };
+
+            let period = Duration::seconds(seconds) +
+                Duration::minutes(minutes) + Duration::hours(hours);
+
+            if period > Duration::seconds(0) {
+                Ok(Timer {
+                    period: period,
+                    command: command,
+                    name: name,
+                })
+            } else {
+                Err(ConfigError::IllegalValues(name))
+            }
+        } else {
+            Err(ConfigError::Missing(name, None))
+        }
+    }
+
     /// Execute one iteration of the command.
     fn execute(&self, tx: &Channel) {
         if let Ok(output) = Command::new("sh")
@@ -390,6 +381,32 @@ struct Fifo {
     path: PathBuf,
     /// Where to write the output to
     name: String
+}
+
+impl Fifo {
+    fn from_config(name: String, config: &Value)
+        -> ConfigResult<(String, Fifo)> {
+        if let Value::Table(ref table) = *config {
+            let path =
+                if let Some(&Value::String(ref c)) = table.get("fifo_path") {
+                    try!(parse_path(c))
+                } else {
+                    return Err(
+                        ConfigError::Missing(name, Some("fifo_path")));
+                };
+
+            let default =
+                if let Some(&Value::String(ref d)) = table.get("default") {
+                    d.clone()
+                } else {
+                    String::new()
+                };
+
+            Ok((default, Fifo { path: path, name: name }))
+        } else {
+            Err(ConfigError::Missing(name, None))
+        }
+    }
 }
 
 #[derive(Debug)]

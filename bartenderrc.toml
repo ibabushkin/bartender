@@ -1,0 +1,22 @@
+# our format string
+format = """
+{{! our format string }}
+{{{ clock }}}
+ {{{ calendar }}}
+ {{{ fifo_entry }}}
+{{^ fifo_entry }}
+some value
+{{/fifo_entry}}
+ - and some static stuff
+"""
+
+[timers.clock]
+seconds = 5
+command = "date +%H:%M:%S.%N"
+
+[timers.calendar]
+hours = 24
+command = "date +%F"
+
+[fifos.fifo_entry]
+fifo_path = "~/tmp/entry_b_fifo"
