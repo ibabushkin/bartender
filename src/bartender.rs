@@ -157,7 +157,7 @@ pub enum ConfigError {
     /// File contains something other than UTF-8.
     BadEncoding,
     /// The file could not be parsed.
-    TomlError(Vec<toml::ParserError>),
+    TomlError(Vec<(usize, usize, String)>),
     /// No format is specified in file.
     MissingFormat,
     /// Mustache template could not be parsed.
@@ -177,8 +177,8 @@ impl fmt::Display for ConfigError {
                 write!(f, "I/O error occured: {}", io_error),
             ConfigError::BadEncoding =>
                 write!(f, "file has to be UTF-8 encoded"),
-            ConfigError::TomlError(ref c) =>
-                write!(f, "parsing error: {:?}", c),
+            ConfigError::TomlError(ref p) =>
+                format_toml_error(f, p),
             ConfigError::MissingFormat =>
                 write!(f, "no `format` list found"),
             ConfigError::MustacheError(ref err) =>
@@ -197,6 +197,28 @@ impl fmt::Display for ConfigError {
     }
 }
 
+/// Display a set of errors we got from the TOML parser.
+fn format_toml_error(f: &mut fmt::Formatter,
+                     errors: &[(usize, usize, String)])
+    -> Result<(), fmt::Error> {
+    try!(write!(f, "TOML parsing failed"));
+    for &(line, column, ref err) in errors {
+        try!(write!(f, "\n  line {}, column {}: {}", line, column, err));
+    }
+    Ok(())
+}
+
+/// Pull all the errors from the TOML parser and transform them for display. 
+fn get_toml_errors(parser: toml::Parser) -> Vec<(usize, usize, String)> {
+    parser.errors
+        .iter()
+        .map(|err| {
+            let (line, col) = parser.to_linecol(err.lo);
+            (line + 1, col + 1, err.desc.clone())
+        })
+        .collect()
+}
+
 /// Result wrapper.
 type ConfigResult<T> = Result<T, ConfigError>;
 
@@ -210,7 +232,7 @@ fn parse_config_file(path: &Path) -> ConfigResult<toml::Table> {
                 if let Some(value) = parser.parse() {
                     Ok(value)
                 } else {
-                    Err(ConfigError::TomlError(parser.errors))
+                    Err(ConfigError::TomlError(get_toml_errors(parser)))
                 }
             } else {
                 Err(ConfigError::BadEncoding)
