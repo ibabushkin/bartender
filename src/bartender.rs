@@ -99,8 +99,8 @@ impl Config {
                 for (name, fifo) in fifos {
                     let (default, fifo) =
                         try!(Fifo::from_config(name.clone(), &fifo));
-                    if name.len() > 0 {
-                        inputs.insert(name.clone(), default);
+                    if let Some(s) = default {
+                        inputs.insert(name.clone(), s);
                     }
                     fs.push(fifo);
                 }
@@ -412,7 +412,7 @@ struct Fifo {
 
 impl Fifo {
     fn from_config(name: String, config: &Value)
-        -> ConfigResult<(String, Fifo)> {
+        -> ConfigResult<(Option<String>, Fifo)> {
         if let Value::Table(ref table) = *config {
             let path =
                 if let Some(&Value::String(ref c)) = table.get("fifo_path") {
@@ -424,9 +424,9 @@ impl Fifo {
 
             let default =
                 if let Some(&Value::String(ref d)) = table.get("default") {
-                    d.clone()
+                    Some(d.clone())
                 } else {
-                    String::new()
+                    None
                 };
 
             Ok((default, Fifo { path: path, name: name }))
