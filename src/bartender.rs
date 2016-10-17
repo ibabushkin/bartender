@@ -215,10 +215,6 @@ fn parse_config_file(path: &Path) -> ConfigResult<toml::Table> {
     }
 }
 
-pub fn dump_config(path: &Path) {
-    println!("{:?}", parse_config_file(path).unwrap());
-}
-
 /// Parse a path - helper.
 fn parse_path(path: &str) -> ConfigResult<PathBuf> {
     if path.starts_with("~/") {

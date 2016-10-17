@@ -16,8 +16,6 @@ pub mod poll;
 
 use bartender::Config;
 
-use bartender::dump_config;
-
 /// Main function.
 ///
 /// Read in command line arguments, parse options and configuration file.
@@ -62,5 +60,4 @@ fn main() {
         },
         Err(e) => err!("error reading config: {}", e),
     }
-    dump_config(Path::new("bartenderrc.toml"));
 }
