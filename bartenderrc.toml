@@ -6,7 +6,7 @@ format = """
  {{{ fifo_entry }}}
 {{^ fifo_entry }}
 some value
-{{/fifo_entry}}
+{{/ fifo_entry}}
  - and some static stuff
 """
 
