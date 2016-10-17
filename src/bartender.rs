@@ -16,7 +16,7 @@ macro_rules! err {
 use poll;
 use poll::FileBuffer;
 
-use mustache::{compile_str, Template};
+use mustache::{compile_str,Error,Template};
 
 // I/O stuff for the heavy lifting, path lookup and similar things
 use std::cmp::Ordering;
@@ -68,7 +68,10 @@ impl Config {
             if let Some(&Value::String(ref format)) = cfg.get("format") {
                 let mut s = format.replace("\n", "");
                 s.push('\n'); // TODO: wääh
-                compile_str(s.as_str())
+                match compile_str(s.as_str()) {
+                    Ok(t) => t,
+                    Err(e) => return Err(ConfigError::MustacheError(e)),
+                }
             } else {
                 return Err(ConfigError::MissingFormat);
             };
@@ -157,6 +160,8 @@ pub enum ConfigError {
     TomlError(Vec<toml::ParserError>),
     /// No format is specified in file.
     MissingFormat,
+    /// Mustache template could not be parsed.
+    MustacheError(Error),
     /// Some value is missing.
     Missing(String, Option<&'static str>),
     /// A timer is malformatted.
@@ -176,6 +181,8 @@ impl fmt::Display for ConfigError {
                 write!(f, "parsing error: {:?}", c),
             ConfigError::MissingFormat =>
                 write!(f, "no `format` list found"),
+            ConfigError::MustacheError(ref err) =>
+                write!(f, "format could not be parsed: {}", err),
             ConfigError::Missing(ref name, Some(sub)) =>
                 write!(f, "entity `{}` is missing child `{}` \
                        (or it has the wrong type)", name, sub),

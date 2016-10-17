@@ -11,7 +11,8 @@ license = "BSD3"
 [dependencies]
 getopts = "^0.2.14"
 libc = "^0.2.15"
-mustache = "^0.7.0"
+mustache = { git = "https://github.com/nickel-org/rust-mustache" }
+#"^0.7.0"
 time = "^0.1.35"
 toml = "^0.2.1"
 
