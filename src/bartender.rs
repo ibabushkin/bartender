@@ -99,7 +99,9 @@ impl Config {
                 for (name, fifo) in fifos {
                     let (default, fifo) =
                         try!(Fifo::from_config(name.clone(), &fifo));
-                    inputs.insert(name.clone(), default);
+                    if name.len() > 0 {
+                        inputs.insert(name.clone(), default);
+                    }
                     fs.push(fifo);
                 }
 
