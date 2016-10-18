@@ -61,12 +61,12 @@ impl Config {
     /// Parse a config file and return a result.
     pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
-        let cfg = try!(parse_config_file(file));
+        let mut cfg = try!(parse_config_file(file));
 
         let mut inputs = HashMap::new();
 
         let template =
-            if let Some(&Value::String(ref format)) = cfg.get("format") {
+            if let Some(Value::String(format)) = cfg.remove("format") {
                 let mut s = format.replace("\n", "");
                 s.push('\n'); // TODO: wääh
                 match compile_str(s.as_str()) {
@@ -79,12 +79,11 @@ impl Config {
 
         // get the set of Timers
         let timers =
-            if let Some(&Value::Table(ref timers)) = cfg.get("timers") {
+            if let Some(Value::Table(timers)) = cfg.remove("timers") {
                 let mut ts = Vec::with_capacity(timers.len());
 
                 for (name, timer) in timers {
-                    inputs.insert(name.clone(), String::from(""));
-                    ts.push(try!(Timer::from_config(name.clone(), &timer)));
+                    ts.push(try!(Timer::from_config(name, timer)));
                 }
 
                 ts
@@ -94,14 +93,14 @@ impl Config {
 
         // get the set of FIFOs
         let fifos =
-            if let Some(&Value::Table(ref fifos)) = cfg.get("fifos") {
+            if let Some(Value::Table(fifos)) = cfg.remove("fifos") {
                 let mut fs = Vec::with_capacity(fifos.len());
 
                 for (name, fifo) in fifos {
                     let (default, fifo) =
-                        try!(Fifo::from_config(name.clone(), &fifo));
+                        try!(Fifo::from_config(name.clone(), fifo));
                     if let Some(s) = default {
-                        inputs.insert(name.clone(), s);
+                        inputs.insert(name, s);
                     }
                     fs.push(fifo);
                 }
@@ -276,8 +275,8 @@ struct Timer {
 }
 
 impl Timer {
-    fn from_config(name: String, config: &Value) -> ConfigResult<Timer> {
-        if let Value::Table(ref table) = *config {
+    fn from_config(name: String, config: Value) -> ConfigResult<Timer> {
+        if let Value::Table(mut table) = config {
             let seconds =
                 if let Some(&Value::Integer(s)) = table.get("seconds") {
                     s
@@ -294,8 +293,8 @@ impl Timer {
                 } else { 0 };
 
             let command =
-                if let Some(&Value::String(ref c)) = table.get("command") {
-                    c.clone()
+                if let Some(Value::String(c)) = table.remove("command") {
+                    c
                 } else {
                     return Err(ConfigError::Missing(name, Some("command")));
                 };
@@ -424,9 +423,9 @@ struct Fifo {
 }
 
 impl Fifo {
-    fn from_config(name: String, config: &Value)
+    fn from_config(name: String, config: Value)
         -> ConfigResult<(Option<String>, Fifo)> {
-        if let Value::Table(ref table) = *config {
+        if let Value::Table(mut table) = config {
             let path =
                 if let Some(&Value::String(ref c)) = table.get("fifo_path") {
                     try!(parse_path(c))
@@ -436,8 +435,8 @@ impl Fifo {
                 };
 
             let default =
-                if let Some(&Value::String(ref d)) = table.get("default") {
-                    Some(d.clone())
+                if let Some(Value::String(d)) = table.remove("default") {
+                    Some(d)
                 } else {
                     None
                 };
