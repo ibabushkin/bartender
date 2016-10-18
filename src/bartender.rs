@@ -7,8 +7,7 @@
 macro_rules! err {
     ($format:expr, $($arg:expr),*) => {{
         use std::io::stderr;
-        let _ =
-            writeln!(&mut stderr(), $format, $($arg),*);
+        let _ = writeln!(&mut stderr(), $format, $($arg),*);
     }}
 }
 
@@ -16,7 +15,7 @@ macro_rules! err {
 use poll;
 use poll::FileBuffer;
 
-use mustache::{compile_str,Error,Template};
+use mustache::{compile_str, Error, Template};
 
 // I/O stuff for the heavy lifting, path lookup and similar things
 use std::cmp::Ordering;
@@ -33,8 +32,10 @@ use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
 
-use time::{Duration,SteadyTime,Timespec,get_time};
+// timer stuff
+use time::{Duration, SteadyTime, Timespec, get_time};
 
+// config parsing machinery
 use toml;
 use toml::Value;
 
@@ -121,9 +122,10 @@ impl Config {
 
     /// Run with the given configuration.
     ///
-    /// Create a MPSC channel passed to each thread spawned, each representing
-    /// one of the entries (which is either FIFO or timer). The messages get
-    /// merged into the buffer and the modified contents get stored.
+    /// Create a MPSC channel passed to each thread spawned, each
+    /// representing one of the entries (which is either FIFO or timer).
+    /// The messages get merged into the buffer and the modified contents
+    /// get stored.
     pub fn run(mut self) {
         let (tx, rx) = mpsc::channel();
 
@@ -146,9 +148,9 @@ impl Config {
             for (name, value) in updates {
                 self.last_input_results.insert(name, value);
             }
-            match self.format.render(&mut stdout(), &self.last_input_results) {
-                Err(e) => err!("mustache error: {}", e),
-                _ => (),
+            if let Err(e) =
+                self.format.render(&mut stdout(), &self.last_input_results) {
+                err!("mustache error: {}", e);
             }
         }
     }
@@ -213,7 +215,7 @@ fn format_toml_error(f: &mut fmt::Formatter,
     Ok(())
 }
 
-/// Pull all the errors from the TOML parser and transform them for display. 
+/// Pull all the errors from the TOML parser and transform them for display.
 fn get_toml_errors(parser: toml::Parser) -> Vec<(usize, usize, String)> {
     parser.errors
         .iter()
@@ -377,6 +379,11 @@ impl TimerSet {
         let start_time = SteadyTime::now();
         let mut heap = BinaryHeap::with_capacity(len);
 
+        // TODO: Suggestion: Insert sets of events into the heap, allowing for
+        // simultaneous running of multiple events scheduled for the same
+        // second. This could reduce jitter and imrove the timers' sync
+        // property - since less regenerating of the template takes place.
+        // However, this could also increase visible latency and memory usage.
         for timer in &self.timers {
             heap.push(Entry{ time: start_time, timer: timer });
         }
