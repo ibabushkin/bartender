@@ -9,6 +9,7 @@ use getopts::Options;
 use std::env;
 use std::io::Write;
 use std::path::Path;
+use std::process::exit;
 
 #[macro_use]
 pub mod bartender;
@@ -32,7 +33,10 @@ fn main() {
     // match on args and decide what to do
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
-        Err(f) => panic!(f.to_string()),
+        Err(f) => {
+            err!("error: parsing args failed: {}", f.to_string());
+            exit(1);
+        },
     };
     if matches.opt_present("h") {
         let desc = format!("usage: {} [options]", args[0]);
@@ -47,10 +51,14 @@ fn main() {
         dir.push(".bartenderrc");
         match dir.canonicalize() {
             Ok(path) => Config::from_config_file(path.as_path()),
-            Err(err) => panic!("error: {}", err),
+            Err(err) => {
+                err!("error: {}", err);
+                exit(1);
+            },
         }
     } else {
-        panic!("no config file could be determined!");
+        err!("no config file could be determined!",);
+        exit(1);
     };
 
     match config {
@@ -58,6 +66,9 @@ fn main() {
             err!("obtained config: {:?}", config);
             config.run()
         },
-        Err(e) => err!("error reading config: {}", e),
+        Err(e) => {
+            err!("error: reading config failed: {}", e);
+            exit(1);
+        },
     }
 }

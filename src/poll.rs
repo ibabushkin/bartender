@@ -33,7 +33,7 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
     for (fd, &mut FileBuffer(ref mut buf, ref mut reader, ref name)) in
         fds.iter().zip(buffers) {
         if fd.fd != reader.get_ref().as_raw_fd() {
-            panic!("mismatched FileBuffer");
+            panic!("error: mismatched FileBuffer. please file an issue.");
         }
         if fd.revents & libc::POLLIN != 0 &&
             reader.read_until(0xA, buf).is_ok() {

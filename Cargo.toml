@@ -1,6 +1,6 @@
 [package]
 name = "bartender"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Inokentiy Babushkin <inokentiy.babushkin@googlemail.com>"]
 homepage = "https://ibabushkin.github.io/"
 repository = "https://github.com/ibabushkin/bartender"

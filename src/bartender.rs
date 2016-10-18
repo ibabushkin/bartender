@@ -47,7 +47,7 @@ type Channel = mpsc::Sender<Vec<(String, String)>>;
 #[derive(Debug)]
 pub struct Config {
     /// compiled format template
-    format_template: Template,
+    format: Template,
     /// current values passed to the template
     last_input_results: HashMap<String, String>,
     /// all timer sources
@@ -112,7 +112,7 @@ impl Config {
 
         // return the results
         Ok(Config {
-            format_template: template,
+            format: template,
             last_input_results: inputs,
             timers: TimerSet { timers: timers },
             fifos: FifoSet { fifos: fifos },
@@ -146,7 +146,10 @@ impl Config {
             for (name, value) in updates {
                 self.last_input_results.insert(name, value);
             }
-            self.format_template.render(&mut stdout(), &self.last_input_results).unwrap();
+            match self.format.render(&mut stdout(), &self.last_input_results) {
+                Err(e) => err!("mustache error: {}", e),
+                _ => (),
+            }
         }
     }
 }
@@ -391,7 +394,10 @@ impl TimerSet {
 
                 let sleep_for = next - sys_now;
                 if sleep_for > Duration::seconds(0) {
-                    thread::sleep(sleep_for.to_std().unwrap());
+                    match sleep_for.to_std() {
+                        Ok(duration) => thread::sleep(duration),
+                        Err(e) => err!("error: sleep failed: {}", e),
+                    }
                 }
             }
 
