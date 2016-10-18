@@ -34,9 +34,9 @@ format = """
 {{{ clock }}}
  {{{ calendar }}}
  {{{ fifo_entry }}}
-{{^ fifo_entry }}
+{{^ fifo_entry }} {{! a way of implementing default values in-template }}
 some value
-{{/fifo_entry}}
+{{/ fifo_entry }}
  - and some static stuff
 """
 
@@ -52,7 +52,7 @@ command = "date +%F"
 
 [fifos.fifo_entry]
 fifo_path = "~/tmp/entry_b_fifo"
-default = "some default string"
+default = "some default string" # another way of specifying defaults
 ```
 
 Let's split it up and look how it functions. The config file *has* to define a
