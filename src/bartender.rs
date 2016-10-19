@@ -50,8 +50,6 @@ type Channel = mpsc::Sender<Vec<(String, String)>>;
 pub struct Config {
     /// compiled format template
     format: Template,
-    /// current values passed to the template
-    last_input_results: HashMap<String, String>,
     /// all timer sources
     timers: TimerSet,
     /// all FIFO sources
@@ -63,8 +61,6 @@ impl Config {
     pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
         let mut cfg = try!(parse_config_file(file));
-
-        let mut inputs = HashMap::new();
 
         let template =
             if let Some(Value::String(format)) = cfg.remove("format") {
@@ -98,11 +94,7 @@ impl Config {
                 let mut fs = Vec::with_capacity(fifos.len());
 
                 for (name, fifo) in fifos {
-                    let (default, fifo) =
-                        try!(Fifo::from_config(name.clone(), fifo));
-                    if let Some(s) = default {
-                        inputs.insert(name, s);
-                    }
+                    let fifo = try!(Fifo::from_config(name.clone(), fifo));
                     fs.push(fifo);
                 }
 
@@ -114,7 +106,6 @@ impl Config {
         // return the results
         Ok(Config {
             format: template,
-            last_input_results: inputs,
             timers: TimerSet { timers: timers },
             fifos: FifoSet { fifos: fifos },
         })
@@ -126,30 +117,27 @@ impl Config {
     /// representing one of the entries (which is either FIFO or timer).
     /// The messages get merged into the buffer and the modified contents
     /// get stored.
-    pub fn run(mut self) {
+    pub fn run(self) {
         let (tx, rx) = mpsc::channel();
+        let tx2 = tx.clone();
+        let Config { format, timers, fifos } = self;
 
-        {
-            let tx = tx.clone();
-            let timers = self.timers;
-            thread::spawn(move || {
-                timers.run(tx);
-            });
-        }
+        thread::spawn(move || {
+            timers.run(tx2);
+        });
 
-        {
-            let fifos = self.fifos;
-            thread::spawn(move || {
-                fifos.run(tx);
-            });
-        }
+        thread::spawn(move || {
+            fifos.run(tx);
+        });
+
+        let mut last_input_results = HashMap::new();
 
         for updates in rx.iter() {
             for (name, value) in updates {
-                self.last_input_results.insert(name, value);
+                last_input_results.insert(name, value);
             }
             if let Err(e) =
-                self.format.render(&mut stdout(), &self.last_input_results) {
+                format.render(&mut stdout(), &last_input_results) {
                 err!("mustache error: {}", e);
             }
         }
@@ -420,12 +408,13 @@ struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
     /// Where to write the output to
-    name: String
+    name: String,
+    /// Default value used
+    default: Option<String>
 }
 
 impl Fifo {
-    fn from_config(name: String, config: Value)
-        -> ConfigResult<(Option<String>, Fifo)> {
+    fn from_config(name: String, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
             let path =
                 if let Some(&Value::String(ref c)) = table.get("fifo_path") {
@@ -442,7 +431,7 @@ impl Fifo {
                     None
                 };
 
-            Ok((default, Fifo { path: path, name: name }))
+            Ok(Fifo { path: path, name: name, default: default })
         } else {
             Err(ConfigError::Missing(name, None))
         }
@@ -457,22 +446,24 @@ struct FifoSet {
 
 impl FifoSet {
     /// Run a worker thread handling `FIFO`s.
-    pub fn run(&self, tx: Channel) {
+    pub fn run(mut self, tx: Channel) {
         let len = self.fifos.len();
         let mut fds = Vec::with_capacity(len);
         let mut buffers = Vec::with_capacity(len);
 
-        for fifo in &self.fifos {
+        for fifo in self.fifos.drain(..) {
             if let Some(f) = open_fifo(&fifo.path) {
                 fds.push(poll::setup_pollfd(&f));
                 buffers.push(FileBuffer(Vec::new(),
-                    BufReader::new(f), fifo.name.clone()));
+                    BufReader::new(f), fifo.name));
             } else {
                 err!("either a non-FIFO file {:?} exits, or it can't be created",
                      fifo.path);
                 exit(1);
             }
         }
+
+        drop(self);
 
         while poll::poll(&mut fds) {
             let _ = tx.send(poll::get_lines(&fds, &mut buffers));
