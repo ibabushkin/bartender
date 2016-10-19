@@ -11,6 +11,8 @@ macro_rules! err {
     }}
 }
 
+use mkfifo::open_fifo;
+
 // a rather hackish wrapper around `poll` for proper I/O on FIFOs
 use poll;
 use poll::FileBuffer;
@@ -23,12 +25,11 @@ use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::env::home_dir;
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufReader, Error as IoError, stdout};
 use std::io::prelude::*;
-use std::os::unix::fs::FileTypeExt;
 use std::path::{Path,PathBuf};
-use std::process::Command;
+use std::process::{Command, exit};
 use std::sync::mpsc;
 use std::thread;
 
@@ -462,23 +463,14 @@ impl FifoSet {
         let mut buffers = Vec::with_capacity(len);
 
         for fifo in &self.fifos {
-            if let Ok(f) =
-                OpenOptions::new().read(true).write(true).open(&fifo.path) {
-                // we open the file in read-write mode to prevent our poll()
-                // hack from sending us `POLLHUP`s when no process is at the
-                // other end of the pipe, so it blocks either way.
-                match f.metadata().map(|m| m.file_type().is_fifo()) {
-                    Ok(true) => {
-                        fds.push(poll::setup_pollfd(&f));
-                        buffers.push(FileBuffer(Vec::new(),
-                            BufReader::new(f), fifo.name.clone()));
-                    },
-                    _ => {
-                        err!("{:?} is not a FIFO", fifo.path);
-                    },
-                }
+            if let Some(f) = open_fifo(&fifo.path) {
+                fds.push(poll::setup_pollfd(&f));
+                buffers.push(FileBuffer(Vec::new(),
+                    BufReader::new(f), fifo.name.clone()));
             } else {
-                err!("file {:?} could not be opened", fifo.path);
+                err!("either a non-FIFO file {:?} exits, or it can't be created",
+                     fifo.path);
+                exit(1);
             }
         }
 

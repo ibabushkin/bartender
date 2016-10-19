@@ -13,6 +13,7 @@ use std::process::exit;
 
 #[macro_use]
 pub mod bartender;
+pub mod mkfifo;
 pub mod poll;
 
 use bartender::Config;
