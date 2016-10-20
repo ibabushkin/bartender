@@ -372,7 +372,7 @@ impl TimerSet {
 
         // TODO: Suggestion: Insert sets of events into the heap, allowing for
         // simultaneous running of multiple events scheduled for the same
-        // second. This could reduce jitter and imrove the timers' sync
+        // second. This could reduce jitter and improve the timers' sync
         // property - since less regenerating of the template takes place.
         // However, this could also increase visible latency and memory usage.
         for timer in &self.timers {
@@ -381,28 +381,30 @@ impl TimerSet {
 
         while let Some(Entry{ time, timer }) = heap.pop() {
             let now = SteadyTime::now();
+            let period = timer.period.num_seconds();
+            let sys_now = get_time();
 
             // we're not late
             if time > now {
-                let period = timer.period.num_seconds();
-                let sys_now = get_time();
                 let max_next = (sys_now + (time - now)).sec;
-                let next =
-                    Timespec::new(max_next - (max_next % period as i64), 0);
+                let next = Timespec::new(max_next - (max_next % period as i64), 0);
 
-                let sleep_for = next - sys_now;
-                if sleep_for > Duration::seconds(0) {
-                    match sleep_for.to_std() {
+                if next > sys_now {
+                    match (next - sys_now).to_std() {
                         Ok(duration) => thread::sleep(duration),
                         Err(e) => err!("error: sleep failed: {}", e),
                     }
                 }
-            }
+
+                heap.push(Entry{ time: time + timer.period, timer: timer });
+            } else {
+                let max_next = sys_now.sec + period;
+                let next = Timespec::new(max_next - (max_next % period as i64), 0);
+
+                heap.push(Entry{ time: time + (next - sys_now), timer: timer });
+            } 
 
             timer.execute(&tx);
-            // TODO: Suggestion: Resync here before pushing stuff to the heap or
-            // fix the issues with the code above.
-            heap.push(Entry{ time: time + timer.period, timer: timer });
         }
     }
 }
