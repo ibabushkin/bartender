@@ -11,9 +11,11 @@ macro_rules! err {
     }}
 }
 
+// a rather hackish wrapper around `mkfifo` to make sure we only touch
+// the right files
 use mkfifo::open_fifo;
 
-// a rather hackish wrapper around `poll` for proper I/O on FIFOs
+// an equally hackish wrapper around `poll` for proper I/O on FIFOs
 use poll;
 use poll::FileBuffer;
 
@@ -264,6 +266,7 @@ struct Timer {
 }
 
 impl Timer {
+    /// Parse a Timer from a config structure.
     fn from_config(name: String, config: Value) -> ConfigResult<Timer> {
         if let Value::Table(mut table) = config {
             let seconds =
@@ -397,6 +400,8 @@ impl TimerSet {
             }
 
             timer.execute(&tx);
+            // TODO: Suggestion: Resync here before pushing stuff to the heap or
+            // fix the issues with the code above.
             heap.push(Entry{ time: time + timer.period, timer: timer });
         }
     }
@@ -414,6 +419,7 @@ struct Fifo {
 }
 
 impl Fifo {
+    /// Parse a Fifo from a config structure.
     fn from_config(name: String, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
             let path =
@@ -461,8 +467,8 @@ impl FifoSet {
                 buffers.push(FileBuffer(Vec::new(),
                     BufReader::new(f), fifo.name));
             } else {
-                err!("either a non-FIFO file {:?} exits, or it can't be created",
-                     fifo.path);
+                err!("either a non-FIFO file {:?} exits, \
+                     or it can't be created", fifo.path);
                 exit(1);
             }
         }
