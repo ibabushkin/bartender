@@ -122,6 +122,8 @@ impl Config {
         let tx2 = tx.clone();
         let Config { format, timers, fifos } = self;
 
+        let mut last_input_results = HashMap::new();
+
         thread::spawn(move || {
             timers.run(tx2);
         });
@@ -129,8 +131,6 @@ impl Config {
         thread::spawn(move || {
             fifos.run(tx);
         });
-
-        let mut last_input_results = HashMap::new();
 
         for updates in rx.iter() {
             for (name, value) in updates {
@@ -453,6 +453,10 @@ impl FifoSet {
 
         for fifo in self.fifos.drain(..) {
             if let Some(f) = open_fifo(&fifo.path) {
+                if let Some(default) = fifo.default {
+                    let _ = tx.send(vec![(fifo.name.clone(), default)]);
+                }
+
                 fds.push(poll::setup_pollfd(&f));
                 buffers.push(FileBuffer(Vec::new(),
                     BufReader::new(f), fifo.name));
