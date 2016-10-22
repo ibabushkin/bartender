@@ -14,7 +14,7 @@ pub fn open_fifo(path: &Path) -> Option<File> {
             _ => None, // regular file
         },
         _ => {
-            let path_ptr = path.to_str().unwrap().as_ptr();
+            let path_ptr = path.as_os_str().to_os_string().to_str().unwrap().as_ptr();
             let perms = libc::S_IRUSR | libc::S_IWUSR;
             let ret = unsafe {
                 libc::mkfifo(path_ptr as *const i8, perms)
