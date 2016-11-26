@@ -39,6 +39,7 @@ fn main() {
             exit(1);
         },
     };
+
     if matches.opt_present("h") {
         let desc = format!("usage: {} [options]", args[0]);
         print!("{}", opts.usage(&desc));

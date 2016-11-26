@@ -27,14 +27,15 @@ pub struct FileBuffer(pub Vec<u8>, pub BufReader<File>, pub String);
 
 /// Fill some buffers from a set of previously `poll`ed filedsecriptors.
 pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer])
-    -> Vec<(String, String)> {
+        -> Vec<(String, String)> {
     let fd_len = fds.len();
     let mut res = Vec::with_capacity(fd_len);
     for (fd, &mut FileBuffer(ref mut buf, ref mut reader, ref name)) in
-        fds.iter().zip(buffers) {
+            fds.iter().zip(buffers) {
         if fd.fd != reader.get_ref().as_raw_fd() {
             panic!("error: mismatched FileBuffer. please file an issue.");
         }
+
         if fd.revents & libc::POLLIN != 0 &&
             reader.read_until(0xA, buf).is_ok() {
             if let Some(&c) = buf.last() {

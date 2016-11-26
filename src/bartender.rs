@@ -123,7 +123,6 @@ impl Config {
         let (tx, rx) = mpsc::channel();
         let tx2 = tx.clone();
         let Config { format, timers, fifos } = self;
-
         let mut last_input_results = HashMap::new();
 
         thread::spawn(move || {
@@ -138,6 +137,7 @@ impl Config {
             for (name, value) in updates {
                 last_input_results.insert(name, value);
             }
+
             if let Err(e) =
                 format.render(&mut stdout(), &last_input_results) {
                 err!("mustache error: {}", e);
@@ -195,9 +195,8 @@ impl fmt::Display for ConfigError {
 }
 
 /// Display a set of errors we got from the TOML parser.
-fn format_toml_error(f: &mut fmt::Formatter,
-                     errors: &[(usize, usize, String)])
-    -> Result<(), fmt::Error> {
+fn format_toml_error(f: &mut fmt::Formatter, errors: &[(usize, usize, String)])
+        -> Result<(), fmt::Error> {
     try!(write!(f, "TOML parsing failed"));
     for &(line, column, ref err) in errors {
         try!(write!(f, "\n  line {}, column {}: {}", line, column, err));
@@ -272,17 +271,23 @@ impl Timer {
             let seconds =
                 if let Some(&Value::Integer(s)) = table.get("seconds") {
                     s
-                } else { 0 };
+                } else {
+                    0
+                };
 
             let minutes =
                 if let Some(&Value::Integer(m)) = table.get("minutes") {
                     m
-                } else { 0 };
+                } else {
+                    0
+                };
 
             let hours =
                 if let Some(&Value::Integer(h)) = table.get("hours") {
                     h
-                } else { 0 };
+                } else {
+                    0
+                };
 
             let command =
                 if let Some(Value::String(c)) = table.remove("command") {
@@ -310,19 +315,15 @@ impl Timer {
 
     /// Execute one iteration of the command.
     fn execute(&self, tx: &Channel) {
-        if let Ok(output) = Command::new("sh")
-            .args(&["-c", &self.command]).output() {
+        if let Ok(output) = Command::new("sh").args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
                 let _ = tx.send(vec![(self.name.clone(), s.replace('\n', ""))]);
             }
 
             match output.status.code() {
                 Some(0) => (),
-                Some(c) =>
-                    err!("process \"{}\" exited with code {}",
-                         self.command, c),
-                None =>
-                    err!("process \"{}\" got killed by signal", self.command),
+                Some(c) => err!("process \"{}\" exited with code {}", self.command, c),
+                None => err!("process \"{}\" got killed by signal", self.command),
             }
         }
     }
@@ -428,8 +429,7 @@ impl Fifo {
                 if let Some(&Value::String(ref c)) = table.get("fifo_path") {
                     try!(parse_path(c))
                 } else {
-                    return Err(
-                        ConfigError::Missing(name, Some("fifo_path")));
+                    return Err(ConfigError::Missing(name, Some("fifo_path")));
                 };
 
             let default =
@@ -466,11 +466,10 @@ impl FifoSet {
                 }
 
                 fds.push(poll::setup_pollfd(&f));
-                buffers.push(FileBuffer(Vec::new(),
-                    BufReader::new(f), fifo.name));
+                buffers.push(FileBuffer(Vec::new(), BufReader::new(f), fifo.name));
             } else {
-                err!("either a non-FIFO file {:?} exits, \
-                     or it can't be created", fifo.path);
+                err!("either a non-FIFO file {:?} exits, or it can't be created",
+                     fifo.path);
                 exit(1);
             }
         }
