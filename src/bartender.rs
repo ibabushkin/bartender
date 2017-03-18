@@ -138,8 +138,7 @@ impl Config {
                 last_input_results.insert(name, value);
             }
 
-            if let Err(e) =
-                format.render(&mut stdout(), &last_input_results) {
+            if let Err(e) = format.render(&mut stdout(), &last_input_results) {
                 err!("mustache error: {}", e);
             }
         }
