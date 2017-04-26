@@ -3,6 +3,9 @@ extern crate libc;
 extern crate mustache;
 extern crate time;
 extern crate toml;
+#[cfg(feature = "pledge")]
+#[macro_use]
+extern crate pledge;
 
 use getopts::Options;
 
