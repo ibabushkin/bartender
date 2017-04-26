@@ -9,6 +9,9 @@ extern crate pledge;
 
 use getopts::Options;
 
+#[cfg(feature = "pledge")]
+use pledge::{pledge, Promise, ToPromiseString};
+
 use std::env;
 use std::io::Write;
 use std::path::Path;
@@ -20,6 +23,20 @@ pub mod mkfifo;
 pub mod poll;
 
 use bartender::Config;
+
+/// Call pledge(2) to drop privileges.
+#[cfg(feature = "pledge")]
+fn pledge_promise() {
+    // TODO: maybe check our pledge?
+    match pledge![Stdio, RPath, Proc, Exec, Unix] {
+        Err(_) => error!("calling pledge() failed"),
+        _ => (),
+    }
+}
+
+/// Dummy call to pledge(2) for non-OpenBSD systems.
+#[cfg(not(feature = "pledge"))]
+fn pledge_promise() { }
 
 /// Main function.
 ///
