@@ -36,7 +36,7 @@ fn pledge_promise() {
 
 /// Dummy call to pledge(2) for non-OpenBSD systems.
 #[cfg(not(feature = "pledge"))]
-fn pledge_promise() { }
+fn pledge_promise() {}
 
 /// Main function.
 ///
@@ -57,7 +57,7 @@ fn main() {
         Err(f) => {
             err!("error: parsing args failed: {}", f.to_string());
             exit(1);
-        },
+        }
     };
 
     if matches.opt_present("h") {
@@ -76,7 +76,7 @@ fn main() {
             Err(err) => {
                 err!("error: {}", err);
                 exit(1);
-            },
+            }
         }
     } else {
         err!("no config file could be determined!",);
@@ -87,10 +87,10 @@ fn main() {
         Ok(config) => {
             err!("obtained config: {:?}", config);
             config.run()
-        },
+        }
         Err(e) => {
             err!("error: reading config failed: {}", e);
             exit(1);
-        },
+        }
     }
 }

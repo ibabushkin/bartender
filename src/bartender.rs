@@ -30,7 +30,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Error as IoError, stdout};
 use std::io::prelude::*;
-use std::path::{Path,PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
 use std::sync::mpsc;
 use std::thread;
@@ -64,53 +64,50 @@ impl Config {
         // attempt to parse configuration file
         let mut cfg = try!(parse_config_file(file));
 
-        let template =
-            if let Some(Value::String(format)) = cfg.remove("format") {
-                let mut s = format.replace("\n", "");
-                s.push('\n'); // TODO: wääh
-                match compile_str(s.as_str()) {
-                    Ok(t) => t,
-                    Err(e) => return Err(ConfigError::MustacheError(e)),
-                }
-            } else {
-                return Err(ConfigError::MissingFormat);
-            };
+        let template = if let Some(Value::String(format)) = cfg.remove("format") {
+            let mut s = format.replace("\n", "");
+            s.push('\n'); // TODO: wääh
+            match compile_str(s.as_str()) {
+                Ok(t) => t,
+                Err(e) => return Err(ConfigError::MustacheError(e)),
+            }
+        } else {
+            return Err(ConfigError::MissingFormat);
+        };
 
         // get the set of Timers
-        let timers =
-            if let Some(Value::Table(timers)) = cfg.remove("timers") {
-                let mut ts = Vec::with_capacity(timers.len());
+        let timers = if let Some(Value::Table(timers)) = cfg.remove("timers") {
+            let mut ts = Vec::with_capacity(timers.len());
 
-                for (name, timer) in timers {
-                    ts.push(try!(Timer::from_config(name, timer)));
-                }
+            for (name, timer) in timers {
+                ts.push(try!(Timer::from_config(name, timer)));
+            }
 
-                ts
-            } else {
-                Vec::new()
-            };
+            ts
+        } else {
+            Vec::new()
+        };
 
         // get the set of FIFOs
-        let fifos =
-            if let Some(Value::Table(fifos)) = cfg.remove("fifos") {
-                let mut fs = Vec::with_capacity(fifos.len());
+        let fifos = if let Some(Value::Table(fifos)) = cfg.remove("fifos") {
+            let mut fs = Vec::with_capacity(fifos.len());
 
-                for (name, fifo) in fifos {
-                    let fifo = try!(Fifo::from_config(name.clone(), fifo));
-                    fs.push(fifo);
-                }
+            for (name, fifo) in fifos {
+                let fifo = try!(Fifo::from_config(name.clone(), fifo));
+                fs.push(fifo);
+            }
 
-                fs
-            } else {
-                Vec::new()
-            };
+            fs
+        } else {
+            Vec::new()
+        };
 
         // return the results
         Ok(Config {
-            format: template,
-            timers: TimerSet { timers: timers },
-            fifos: FifoSet { fifos: fifos },
-        })
+               format: template,
+               timers: TimerSet { timers: timers },
+               fifos: FifoSet { fifos: fifos },
+           })
     }
 
     /// Run with the given configuration.
@@ -122,16 +119,16 @@ impl Config {
     pub fn run(self) {
         let (tx, rx) = mpsc::channel();
         let tx2 = tx.clone();
-        let Config { format, timers, fifos } = self;
+        let Config {
+            format,
+            timers,
+            fifos,
+        } = self;
         let mut last_input_results = HashMap::new();
 
-        thread::spawn(move || {
-            timers.run(tx2);
-        });
+        thread::spawn(move || { timers.run(tx2); });
 
-        thread::spawn(move || {
-            fifos.run(tx);
-        });
+        thread::spawn(move || { fifos.run(tx); });
 
         for updates in rx.iter() {
             for (name, value) in updates {
@@ -169,33 +166,36 @@ pub enum ConfigError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
-            ConfigError::IOError(ref io_error) =>
-                write!(f, "I/O error occured: {}", io_error),
-            ConfigError::BadEncoding =>
-                write!(f, "file has to be UTF-8 encoded"),
-            ConfigError::TomlError(ref p) =>
-                format_toml_error(f, p),
-            ConfigError::MissingFormat =>
-                write!(f, "no `format` list found"),
-            ConfigError::MustacheError(ref err) =>
-                write!(f, "format could not be parsed: {}", err),
-            ConfigError::Missing(ref name, Some(sub)) =>
-                write!(f, "entity `{}` is missing child `{}` \
-                       (or it has the wrong type)", name, sub),
-            ConfigError::Missing(ref name, None) =>
-                write!(f, "entity `{}` is missing \
-                       (or it has the wrong type)", name),
-            ConfigError::IllegalValues(ref name) =>
-                write!(f, "timer `{}` doesn't have a positive period", name),
-            ConfigError::NoHome =>
-                write!(f, "no home directory found"),
+            ConfigError::IOError(ref io_error) => write!(f, "I/O error occured: {}", io_error),
+            ConfigError::BadEncoding => write!(f, "file has to be UTF-8 encoded"),
+            ConfigError::TomlError(ref p) => format_toml_error(f, p),
+            ConfigError::MissingFormat => write!(f, "no `format` list found"),
+            ConfigError::MustacheError(ref err) => write!(f, "format could not be parsed: {}", err),
+            ConfigError::Missing(ref name, Some(sub)) => {
+                write!(f,
+                       "entity `{}` is missing child `{}` \
+                       (or it has the wrong type)",
+                       name,
+                       sub)
+            }
+            ConfigError::Missing(ref name, None) => {
+                write!(f,
+                       "entity `{}` is missing \
+                       (or it has the wrong type)",
+                       name)
+            }
+            ConfigError::IllegalValues(ref name) => {
+                write!(f, "timer `{}` doesn't have a positive period", name)
+            }
+            ConfigError::NoHome => write!(f, "no home directory found"),
         }
     }
 }
 
 /// Display a set of errors we got from the TOML parser.
-fn format_toml_error(f: &mut fmt::Formatter, errors: &[(usize, usize, String)])
-        -> Result<(), fmt::Error> {
+fn format_toml_error(f: &mut fmt::Formatter,
+                     errors: &[(usize, usize, String)])
+                     -> Result<(), fmt::Error> {
     try!(write!(f, "TOML parsing failed"));
     for &(line, column, ref err) in errors {
         try!(write!(f, "\n  line {}, column {}: {}", line, column, err));
@@ -205,12 +205,13 @@ fn format_toml_error(f: &mut fmt::Formatter, errors: &[(usize, usize, String)])
 
 /// Pull all the errors from the TOML parser and transform them for display.
 fn get_toml_errors(parser: toml::Parser) -> Vec<(usize, usize, String)> {
-    parser.errors
+    parser
+        .errors
         .iter()
         .map(|err| {
-            let (line, col) = parser.to_linecol(err.lo);
-            (line + 1, col + 1, err.desc.clone())
-        })
+                 let (line, col) = parser.to_linecol(err.lo);
+                 (line + 1, col + 1, err.desc.clone())
+             })
         .collect()
 }
 
@@ -232,10 +233,8 @@ fn parse_config_file(path: &Path) -> ConfigResult<toml::Table> {
             } else {
                 Err(ConfigError::BadEncoding)
             }
-        },
-        Err(io_error) => {
-            Err(ConfigError::IOError(io_error))
         }
+        Err(io_error) => Err(ConfigError::IOError(io_error)),
     }
 }
 
@@ -260,50 +259,48 @@ struct Timer {
     /// The command as a path buffer
     command: String,
     /// Where to write the output to
-    name: String
+    name: String,
 }
 
 impl Timer {
     /// Parse a Timer from a config structure.
     fn from_config(name: String, config: Value) -> ConfigResult<Timer> {
         if let Value::Table(mut table) = config {
-            let seconds =
-                if let Some(&Value::Integer(s)) = table.get("seconds") {
-                    s
-                } else {
-                    0
-                };
+            let seconds = if let Some(&Value::Integer(s)) = table.get("seconds") {
+                s
+            } else {
+                0
+            };
 
-            let minutes =
-                if let Some(&Value::Integer(m)) = table.get("minutes") {
-                    m
-                } else {
-                    0
-                };
+            // TODO: clean this up to avoid tons of lines (similar stuff for other config parsing
+            // code) .map_or would be useful
+            let minutes = if let Some(&Value::Integer(m)) = table.get("minutes") {
+                m
+            } else {
+                0
+            };
 
-            let hours =
-                if let Some(&Value::Integer(h)) = table.get("hours") {
-                    h
-                } else {
-                    0
-                };
+            let hours = if let Some(&Value::Integer(h)) = table.get("hours") {
+                h
+            } else {
+                0
+            };
 
-            let command =
-                if let Some(Value::String(c)) = table.remove("command") {
-                    c
-                } else {
-                    return Err(ConfigError::Missing(name, Some("command")));
-                };
+            let command = if let Some(Value::String(c)) = table.remove("command") {
+                c
+            } else {
+                return Err(ConfigError::Missing(name, Some("command")));
+            };
 
-            let period = Duration::seconds(seconds) +
-                Duration::minutes(minutes) + Duration::hours(hours);
+            let period = Duration::seconds(seconds) + Duration::minutes(minutes) +
+                         Duration::hours(hours);
 
             if period > Duration::seconds(0) {
                 Ok(Timer {
-                    period: period,
-                    command: command,
-                    name: name,
-                })
+                       period: period,
+                       command: command,
+                       name: name,
+                   })
             } else {
                 Err(ConfigError::IllegalValues(name))
             }
@@ -376,10 +373,13 @@ impl TimerSet {
         // property - since less regenerating of the template takes place.
         // However, this could also increase visible latency and memory usage.
         for timer in &self.timers {
-            heap.push(Entry{ time: start_time, timer: timer });
+            heap.push(Entry {
+                          time: start_time,
+                          timer: timer,
+                      });
         }
 
-        while let Some(Entry{ time, timer }) = heap.pop() {
+        while let Some(Entry { time, timer }) = heap.pop() {
             let now = SteadyTime::now();
             let period = timer.period.num_seconds();
             let sys_now = get_time();
@@ -396,13 +396,19 @@ impl TimerSet {
                     }
                 }
 
-                heap.push(Entry{ time: time + timer.period, timer: timer });
+                heap.push(Entry {
+                              time: time + timer.period,
+                              timer: timer,
+                          });
             } else {
                 let max_next = sys_now.sec + period;
                 let next = Timespec::new(max_next - (max_next % period as i64), 0);
 
-                heap.push(Entry{ time: time + (next - sys_now), timer: timer });
-            } 
+                heap.push(Entry {
+                              time: time + (next - sys_now),
+                              timer: timer,
+                          });
+            }
 
             timer.execute(&tx);
         }
@@ -417,28 +423,30 @@ struct Fifo {
     /// Where to write the output to
     name: String,
     /// Default value used
-    default: Option<String>
+    default: Option<String>,
 }
 
 impl Fifo {
     /// Parse a Fifo from a config structure.
     fn from_config(name: String, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
-            let path =
-                if let Some(&Value::String(ref c)) = table.get("fifo_path") {
-                    try!(parse_path(c))
-                } else {
-                    return Err(ConfigError::Missing(name, Some("fifo_path")));
-                };
+            let path = if let Some(&Value::String(ref c)) = table.get("fifo_path") {
+                try!(parse_path(c))
+            } else {
+                return Err(ConfigError::Missing(name, Some("fifo_path")));
+            };
 
-            let default =
-                if let Some(Value::String(d)) = table.remove("default") {
-                    Some(d)
-                } else {
-                    None
-                };
+            let default = if let Some(Value::String(d)) = table.remove("default") {
+                Some(d)
+            } else {
+                None
+            };
 
-            Ok(Fifo { path: path, name: name, default: default })
+            Ok(Fifo {
+                   path: path,
+                   name: name,
+                   default: default,
+               })
         } else {
             Err(ConfigError::Missing(name, None))
         }
