@@ -35,9 +35,14 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Vec<(Strin
         if fd.revents & libc::POLLIN != 0 {
             let mut value = String::new();
             if reader.read_line(&mut value).is_ok() {
+                if value.len() > 0 && value.as_bytes()[value.len() - 1] == 0xA {
+                    value.pop();
+                }
+
                 res.push((name.clone(), value));
             }
         }
     }
+
     res
 }
