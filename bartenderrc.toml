@@ -18,5 +18,5 @@ command = "date +%H:%M:%S.%N"
 hours = 24
 command = "date +%F"
 
-# [fifos.fifo_entry]
-# fifo_path = "~/tmp/entry_b_fifo"
+[fifos.fifo_entry]
+fifo_path = "~/tmp/entry_b_fifo"
