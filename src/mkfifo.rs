@@ -17,7 +17,7 @@ pub fn open_fifo(path: &Path) -> Option<File> {
         Ok(f) => {
             match f.metadata().map(|m| m.file_type().is_fifo()) {
                 Ok(true) => Some(f),
-                _ => None, // regular file
+                _ => None, // anything decidedly non-fifo
             }
         }
         _ => {

@@ -473,7 +473,7 @@ impl FifoSet {
                 }
 
                 fds.push(poll::setup_pollfd(&f));
-                buffers.push(FileBuffer(Vec::new(), BufReader::new(f), fifo.name));
+                buffers.push(FileBuffer(BufReader::new(f), fifo.name));
             } else {
                 err!("either a non-FIFO file {:?} exits, or it can't be created",
                      fifo.path);
