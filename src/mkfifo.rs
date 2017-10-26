@@ -2,8 +2,8 @@ use libc;
 
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};
-use std::os::unix::fs::FileTypeExt;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
 use std::path::Path;
 
 pub fn open_fifo(path: &Path) -> Option<File> {
@@ -23,9 +23,8 @@ pub fn open_fifo(path: &Path) -> Option<File> {
         }
         _ => {
             let path_cstr = CString::new(path.as_os_str().as_bytes()).unwrap();
-            let path_ptr = path_cstr.as_ptr();
             let perms = libc::S_IRUSR | libc::S_IWUSR;
-            let ret = unsafe { libc::mkfifo(path_ptr as *const i8, perms) };
+            let ret = unsafe { libc::mkfifo(path_cstr.as_ptr() as *const i8, perms) };
             if ret != 0 { None } else { options.open(path).ok() }
         }
     }
