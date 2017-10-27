@@ -212,7 +212,7 @@ fn format_toml_error(f: &mut fmt::Formatter,
 }
 
 /// Pull all the errors from the TOML parser and transform them for display.
-fn get_toml_errors(parser: toml::Parser) -> Vec<(usize, usize, String)> {
+fn get_toml_errors(parser: &toml::Parser) -> Vec<(usize, usize, String)> {
     parser
         .errors
         .iter()
@@ -236,7 +236,7 @@ fn parse_config_file(path: &Path) -> ConfigResult<toml::Table> {
                 if let Some(value) = parser.parse() {
                     Ok(value)
                 } else {
-                    Err(ConfigError::TomlError(get_toml_errors(parser)))
+                    Err(ConfigError::TomlError(get_toml_errors(&parser)))
                 }
             } else {
                 Err(ConfigError::BadEncoding)

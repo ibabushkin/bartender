@@ -56,8 +56,8 @@ fn main() {
         Ok(m) => m,
         Err(f) => {
             err!("error: parsing args failed: {}", f.to_string());
-            exit(1);
-        }
+            exit(1)
+        },
     };
 
     if matches.opt_present("h") {

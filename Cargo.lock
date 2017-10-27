@@ -1,6 +1,6 @@
 [root]
 name = "bartender"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "getopts 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)",

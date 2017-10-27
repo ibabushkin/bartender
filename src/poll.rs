@@ -38,7 +38,7 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Message {
         if fd.revents & libc::POLLIN != 0 {
             let mut value = String::new();
             if reader.read_line(&mut value).is_ok() {
-                if value.len() > 0 && value.as_bytes()[value.len() - 1] == 0xA {
+                if !value.is_empty() && value.as_bytes()[value.len() - 1] == 0xA {
                     value.pop();
                 }
 
