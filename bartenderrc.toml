@@ -4,7 +4,7 @@ format = """
 {{{ clock }}}
  {{{ calendar }}}
  {{{ fifo_entry }}}
-{{^ fifo_entry }} {{! a way of implementing default values in-template }}
+{{^ fifo_entry }}{{! a way of implementing default values in-template }}
 some value
 {{/ fifo_entry }}
  - and some static stuff
