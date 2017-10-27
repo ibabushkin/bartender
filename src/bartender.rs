@@ -17,7 +17,7 @@ use mkfifo::open_fifo;
 
 // an equally hackish wrapper around `poll` for proper I/O on FIFOs
 use poll;
-use poll::FileBuffer;
+use poll::{FileBuffer, Message};
 
 use mustache::{compile_str, Error, Template};
 
@@ -42,20 +42,19 @@ use time::{Duration, SteadyTime, Timespec, get_time};
 use toml;
 use toml::Value;
 
-/// A channel we send our messages through.
-type Channel = mpsc::Sender<Vec<(String, String)>>;
-
 /// Config data.
 ///
 /// Holds a number of input sources as well as an output buffer.
 #[derive(Debug)]
 pub struct Config {
-    /// compiled format template
+    /// Compiled format template.
     format: Template,
-    /// all timer sources
+    /// All timer sources.
     timers: TimerSet,
-    /// all FIFO sources
+    /// All FIFO sources.
     fifos: FifoSet,
+    /// A mapping from index to input name.
+    id_mapping: Vec<String>,
 }
 
 impl Config {
@@ -63,6 +62,8 @@ impl Config {
     pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
         let mut cfg = try!(parse_config_file(file));
+
+        let mut id_mapping = Vec::new();
 
         let template = if let Some(Value::String(format)) = cfg.remove("format") {
             let mut s = format.replace("\n", "");
@@ -78,9 +79,12 @@ impl Config {
         // get the set of Timers
         let timers = if let Some(Value::Table(timers)) = cfg.remove("timers") {
             let mut ts = Vec::with_capacity(timers.len());
+            let mut id = 0;
 
             for (name, timer) in timers {
-                ts.push(try!(Timer::from_config(name, timer)));
+                id_mapping.push(name.clone());
+                ts.push(try!(Timer::from_config(name, id, timer)));
+                id += 1;
             }
 
             ts
@@ -91,10 +95,12 @@ impl Config {
         // get the set of FIFOs
         let fifos = if let Some(Value::Table(fifos)) = cfg.remove("fifos") {
             let mut fs = Vec::with_capacity(fifos.len());
+            let mut id = timers.len();
 
             for (name, fifo) in fifos {
-                let fifo = try!(Fifo::from_config(name.clone(), fifo));
-                fs.push(fifo);
+                id_mapping.push(name.clone());
+                fs.push(try!(Fifo::from_config(name.clone(), id, fifo)));
+                id += 1;
             }
 
             fs
@@ -105,8 +111,9 @@ impl Config {
         // return the results
         Ok(Config {
                format: template,
-               timers: TimerSet { timers: timers },
-               fifos: FifoSet { fifos: fifos },
+               timers: TimerSet { timers },
+               fifos: FifoSet { fifos },
+               id_mapping,
            })
     }
 
@@ -123,16 +130,17 @@ impl Config {
             format,
             timers,
             fifos,
+            id_mapping,
         } = self;
         let mut last_input_results = HashMap::new();
 
-        thread::spawn(move || { timers.run(tx2); });
+        thread::spawn(move || { timers.run(tx); });
 
-        thread::spawn(move || { fifos.run(tx); });
+        thread::spawn(move || { fifos.run(tx2); });
 
         for updates in rx.iter() {
-            for (name, value) in updates {
-                last_input_results.insert(name, value);
+            for (id, value) in updates {
+                last_input_results.insert(&id_mapping[id], value);
             }
 
             if let Err(e) = format.render(&mut stdout(), &last_input_results) {
@@ -256,15 +264,15 @@ fn parse_path(path: &str) -> ConfigResult<PathBuf> {
 struct Timer {
     /// Time interval between invocations.
     period: Duration,
-    /// The command as a path buffer
+    /// The command as a path buffer.
     command: String,
-    /// Where to write the output to
-    name: String,
+    /// The output destination of the timer.
+    id: usize,
 }
 
 impl Timer {
     /// Parse a Timer from a config structure.
-    fn from_config(name: String, config: Value) -> ConfigResult<Timer> {
+    fn from_config(name: String, id: usize, config: Value) -> ConfigResult<Timer> {
         if let Value::Table(mut table) = config {
             let seconds = if let Some(&Value::Integer(s)) = table.get("seconds") {
                 s
@@ -296,11 +304,7 @@ impl Timer {
                          Duration::hours(hours);
 
             if period > Duration::seconds(0) {
-                Ok(Timer {
-                       period: period,
-                       command: command,
-                       name: name,
-                   })
+                Ok(Timer { period, command, id })
             } else {
                 Err(ConfigError::IllegalValues(name))
             }
@@ -310,10 +314,10 @@ impl Timer {
     }
 
     /// Execute one iteration of the command.
-    fn execute(&self, tx: &Channel) {
+    fn execute(&self, tx: &mpsc::Sender<Message>) {
         if let Ok(output) = Command::new("sh").args(&["-c", &self.command]).output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
-                let _ = tx.send(vec![(self.name.clone(), s.replace('\n', ""))]);
+                let _ = tx.send(vec![(self.id, s.replace('\n', ""))]);
             }
 
             match output.status.code() {
@@ -361,9 +365,14 @@ struct TimerSet {
 }
 
 impl TimerSet {
+    /// Get the number of timers.
+    pub fn len(&self) -> usize {
+        self.timers.len()
+    }
+
     /// Run a worker thread handling `Timer`s.
-    pub fn run(&self, tx: Channel) {
-        let len = self.timers.len();
+    pub fn run(&self, tx: mpsc::Sender<Message>) {
+        let len = self.len();
         let start_time = SteadyTime::now();
         let mut heap = BinaryHeap::with_capacity(len);
 
@@ -420,15 +429,15 @@ impl TimerSet {
 struct Fifo {
     /// Path to FIFO.
     path: PathBuf,
-    /// Where to write the output to
-    name: String,
-    /// Default value used
+    /// The output destination of the FIFO.
+    id: usize,
+    /// Default value used.
     default: Option<String>,
 }
 
 impl Fifo {
     /// Parse a Fifo from a config structure.
-    fn from_config(name: String, config: Value) -> ConfigResult<Fifo> {
+    fn from_config(name: String, id: usize, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
             let path = if let Some(&Value::String(ref c)) = table.get("fifo_path") {
                 try!(parse_path(c))
@@ -442,11 +451,7 @@ impl Fifo {
                 None
             };
 
-            Ok(Fifo {
-                   path: path,
-                   name: name,
-                   default: default,
-               })
+            Ok(Fifo { path, id, default })
         } else {
             Err(ConfigError::Missing(name, None))
         }
@@ -461,7 +466,7 @@ struct FifoSet {
 
 impl FifoSet {
     /// Run a worker thread handling `FIFO`s.
-    pub fn run(mut self, tx: Channel) {
+    pub fn run(mut self, tx: mpsc::Sender<Message>) {
         let len = self.fifos.len();
         let mut fds = Vec::with_capacity(len);
         let mut buffers = Vec::with_capacity(len);
@@ -469,11 +474,11 @@ impl FifoSet {
         for fifo in self.fifos.drain(..) {
             if let Some(f) = open_fifo(&fifo.path) {
                 if let Some(default) = fifo.default {
-                    let _ = tx.send(vec![(fifo.name.clone(), default)]);
+                    let _ = tx.send(vec![(fifo.id, default)]);
                 }
 
                 fds.push(poll::setup_pollfd(&f));
-                buffers.push(FileBuffer(BufReader::new(f), fifo.name));
+                buffers.push(FileBuffer(BufReader::new(f), fifo.id));
             } else {
                 err!("either a non-FIFO file {:?} exits, or it can't be created",
                      fifo.path);

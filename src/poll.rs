@@ -21,13 +21,16 @@ pub fn poll(fds: &mut [libc::pollfd]) -> bool {
 
 /// A wrapped `BufReader` only yielding complete lines, annotated with
 /// an index.
-pub struct FileBuffer(pub BufReader<File>, pub String);
+pub struct FileBuffer(pub BufReader<File>, pub usize);
+
+/// Message type sent through our channels.
+pub type Message = Vec<(usize, String)>;
 
 /// Fill some buffers from a set of previously `poll`ed filedsecriptors.
-pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Vec<(String, String)> {
+pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Message {
     let fd_len = fds.len();
     let mut res = Vec::with_capacity(fd_len);
-    for (fd, &mut FileBuffer(ref mut reader, ref name)) in fds.iter().zip(buffers) {
+    for (fd, &mut FileBuffer(ref mut reader, ref id)) in fds.iter().zip(buffers) {
         if fd.fd != reader.get_ref().as_raw_fd() {
             panic!("error: mismatched FileBuffer. this is a bug - please file an issue.");
         }
@@ -39,7 +42,7 @@ pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Vec<(Strin
                     value.pop();
                 }
 
-                res.push((name.clone(), value));
+                res.push((*id, value));
             }
         }
     }
