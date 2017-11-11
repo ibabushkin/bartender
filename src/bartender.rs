@@ -155,8 +155,6 @@ impl Config {
 pub enum ConfigError {
     /// I/O error occured.
     IOError(IoError),
-    /// File contains something other than UTF-8.
-    BadEncoding,
     /// The file could not be parsed.
     TomlError(toml::de::Error),
     /// The TOML tree does not consist of a toplevel table.
@@ -177,7 +175,6 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             ConfigError::IOError(ref io_error) => write!(f, "I/O error occured: {}", io_error),
-            ConfigError::BadEncoding => write!(f, "file has to be UTF-8 encoded"),
             ConfigError::TomlError(ref p) => write!(f, "TOML parsing failed: {}", p),
             ConfigError::TomlNotTable => write!(f, "TOML not consisting of a toplevel table"),
             ConfigError::MissingFormat => write!(f, "no `format` list found"),
@@ -208,21 +205,21 @@ type ConfigResult<T> = Result<T, ConfigError>;
 
 /// Parse a configuration file - helper.
 fn parse_config_file(path: &Path) -> ConfigResult<Table> {
-    match File::open(path) {
-        Ok(mut file) => {
+    File::open(path)
+        .map_err(ConfigError::IOError)
+        .and_then(|mut file| {
             let mut content = String::new();
-            if file.read_to_string(&mut content).is_ok() {
-                match content.parse::<Value>() {
-                    Ok(Value::Table(value)) => Ok(value),
-                    Ok(_) => Err(ConfigError::TomlNotTable),
-                    Err(err) => Err(ConfigError::TomlError(err)),
-                }
-            } else {
-                Err(ConfigError::BadEncoding)
-            }
-        }
-        Err(io_error) => Err(ConfigError::IOError(io_error)),
-    }
+
+            file.read_to_string(&mut content)
+                .map_err(ConfigError::IOError)
+                .and_then(|_| {
+                    match content.parse::<Value>() {
+                        Ok(Value::Table(value)) => Ok(value),
+                        Ok(_) => Err(ConfigError::TomlNotTable),
+                        Err(err) => Err(ConfigError::TomlError(err)),
+                    }
+                })
+        })
 }
 
 /// Parse a path - helper.
