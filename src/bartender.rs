@@ -79,12 +79,10 @@ impl Config {
         // get the set of Timers
         let timers = if let Some(Value::Table(timers)) = cfg.remove("timers") {
             let mut ts = Vec::with_capacity(timers.len());
-            let mut id = 0;
 
-            for (name, timer) in timers {
+            for (id, (name, timer)) in timers.into_iter().enumerate() {
                 id_mapping.push(name.clone());
                 ts.push(Timer::from_config(name, id, timer)?);
-                id += 1;
             }
 
             ts
@@ -359,9 +357,9 @@ impl TimerSet {
         // However, this could also increase visible latency and memory usage.
         for timer in &self.timers {
             heap.push(Entry {
-                          time: start_time,
-                          timer: timer,
-                      });
+                time: start_time,
+                timer,
+            });
         }
 
         while let Some(Entry { time, timer }) = heap.pop() {
@@ -382,17 +380,17 @@ impl TimerSet {
                 }
 
                 heap.push(Entry {
-                              time: time + timer.period,
-                              timer: timer,
-                          });
+                    time: time + timer.period,
+                    timer,
+                });
             } else {
                 let max_next = sys_now.sec + period;
                 let next = Timespec::new(max_next - (max_next % period as i64), 0);
 
                 heap.push(Entry {
-                              time: time + (next - sys_now),
-                              timer: timer,
-                          });
+                    time: time + (next - sys_now),
+                    timer,
+                });
             }
 
             timer.execute(&tx);
