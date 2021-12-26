@@ -1,8 +1,3 @@
-extern crate getopts;
-extern crate libc;
-extern crate mustache;
-extern crate time;
-extern crate toml;
 #[cfg(feature = "pledge")]
 #[macro_use]
 extern crate pledge;
@@ -22,7 +17,7 @@ pub mod bartender;
 pub mod mkfifo;
 pub mod poll;
 
-use bartender::Config;
+use crate::bartender::Config;
 
 /// Call pledge(2) to drop privileges.
 #[cfg(feature = "pledge")]

@@ -13,11 +13,11 @@ macro_rules! err {
 
 // a rather hackish wrapper around `mkfifo` to make sure we only touch
 // the right files
-use mkfifo::open_fifo;
+use crate::mkfifo::open_fifo;
 
 // an equally hackish wrapper around `poll` for proper I/O on FIFOs
-use poll;
-use poll::{FileBuffer, Message};
+use crate::poll;
+use crate::poll::{FileBuffer, Message};
 
 use mustache::{compile_str, Error, Template};
 
