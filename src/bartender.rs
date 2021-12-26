@@ -61,7 +61,7 @@ impl Config {
     /// Parse a config file and return a result.
     pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
-        let mut cfg = try!(parse_config_file(file));
+        let mut cfg = parse_config_file(file)?;
 
         let mut id_mapping = Vec::new();
 
@@ -83,7 +83,7 @@ impl Config {
 
             for (name, timer) in timers {
                 id_mapping.push(name.clone());
-                ts.push(try!(Timer::from_config(name, id, timer)));
+                ts.push(Timer::from_config(name, id, timer)?);
                 id += 1;
             }
 
@@ -99,7 +99,7 @@ impl Config {
 
             for (name, fifo) in fifos {
                 id_mapping.push(name.clone());
-                fs.push(try!(Fifo::from_config(name.clone(), id, fifo)));
+                fs.push(Fifo::from_config(name.clone(), id, fifo)?);
                 id += 1;
             }
 
@@ -416,7 +416,7 @@ impl Fifo {
     fn from_config(name: String, id: usize, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
             let path = if let Some(&Value::String(ref c)) = table.get("fifo_path") {
-                try!(parse_path(c))
+                parse_path(c)?
             } else {
                 return Err(ConfigError::Missing(name, Some("fifo_path")));
             };
