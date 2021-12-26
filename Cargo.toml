@@ -12,7 +12,7 @@ license = "BSD3"
 [dependencies]
 getopts = "^0.2.14"
 libc = "^0.2.15"
-mustache = "^0.8.0"
+mustache = "^0.9.0"
 time = "^0.1.35"
 toml = "^0.4.5"
 pledge = { version = "*", optional = true }
