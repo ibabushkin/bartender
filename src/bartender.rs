@@ -109,7 +109,7 @@ impl Config {
 
     /// Run with the given configuration.
     ///
-    /// Create a MPSC channel passed to each thread spawned, each
+    /// Create an MPSC channel passed to each thread spawned, each
     /// representing one of the entries (which is either FIFO or timer).
     /// The messages get merged into the buffer and the modified contents
     /// get stored.
