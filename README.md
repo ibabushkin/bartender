@@ -1,4 +1,6 @@
 # `bartender` - a simple I/O multiplexer
+![Maintenance status badge](https://img.shields.io/maintenance/yes/2022.svg)
+
 `bartender` is a tool to manage the I/O needed to make your bar, such as
 [`lemonbar`](https://github.com/LemonBoy/bar), work in an efficient fashion.
 Much like a real bartender it handles synchronous and asynchronous events,
