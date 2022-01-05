@@ -3,14 +3,6 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
-#[macro_export]
-macro_rules! err {
-    ($format:expr, $($arg:expr),*) => {{
-        use std::io::stderr;
-        let _ = writeln!(&mut stderr(), $format, $($arg),*);
-    }}
-}
-
 // a rather hackish wrapper around `mkfifo` to make sure we only touch
 // the right files
 use crate::mkfifo::open_fifo;
@@ -142,7 +134,7 @@ impl Config {
             }
 
             if let Err(e) = format.render(&mut stdout(), &last_input_results) {
-                err!("mustache error: {}", e);
+                eprintln!("mustache error: {}", e);
             }
         }
     }
@@ -296,8 +288,8 @@ impl Timer {
 
             match output.status.code() {
                 Some(0) => (),
-                Some(c) => err!("process \"{}\" exited with code {}", self.command, c),
-                None => err!("process \"{}\" got killed by signal", self.command),
+                Some(c) => eprintln!("process \"{}\" exited with code {}", self.command, c),
+                None => eprintln!("process \"{}\" got killed by signal", self.command),
             }
         }
     }
@@ -375,7 +367,7 @@ impl TimerSet {
                 if next > sys_now {
                     match (next - sys_now).to_std() {
                         Ok(duration) => thread::sleep(duration),
-                        Err(e) => err!("error: sleep failed: {}", e),
+                        Err(e) => eprintln!("error: sleep failed: {}", e),
                     }
                 }
 
@@ -454,8 +446,10 @@ impl FifoSet {
                 fds.push(poll::setup_pollfd(&f));
                 buffers.push(FileBuffer(BufReader::new(f), fifo.id));
             } else {
-                err!("either a non-FIFO file {:?} exits, or it can't be created",
-                     fifo.path);
+                eprintln!(
+                    "either a non-FIFO file {:?} exits, or it can't be created",
+                    fifo.path
+                );
                 exit(1);
             }
         }

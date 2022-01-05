@@ -50,9 +50,9 @@ fn main() {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            err!("error: parsing args failed: {}", f.to_string());
+            eprintln!("error: parsing args failed: {}", f.to_string());
             exit(1)
-        },
+        }
     };
 
     if matches.opt_present("h") {
@@ -69,22 +69,22 @@ fn main() {
         match dir.canonicalize() {
             Ok(path) => Config::from_config_file(path.as_path()),
             Err(err) => {
-                err!("error: {}", err);
+                eprintln!("error: {}", err);
                 exit(1);
             }
         }
     } else {
-        err!("no config file could be determined!",);
+        eprintln!("no config file could be determined!",);
         exit(1);
     };
 
     match config {
         Ok(config) => {
-            err!("obtained config: {:?}", config);
+            eprintln!("obtained config: {:?}", config);
             config.run()
         }
         Err(e) => {
-            err!("error: reading config failed: {}", e);
+            eprintln!("error: reading config failed: {}", e);
             exit(1);
         }
     }
