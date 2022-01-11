@@ -3,21 +3,13 @@
 //! Presents types and functions to read in, represent and interpret data
 //! found in configuration files for the software.
 
-#[macro_export]
-macro_rules! err {
-    ($format:expr, $($arg:expr),*) => {{
-        use std::io::stderr;
-        let _ = writeln!(&mut stderr(), $format, $($arg),*);
-    }}
-}
-
 // a rather hackish wrapper around `mkfifo` to make sure we only touch
 // the right files
-use mkfifo::open_fifo;
+use crate::mkfifo::open_fifo;
 
 // an equally hackish wrapper around `poll` for proper I/O on FIFOs
-use poll;
-use poll::{FileBuffer, Message};
+use crate::poll;
+use crate::poll::{FileBuffer, Message};
 
 use mustache::{compile_str, Error, Template};
 
@@ -61,7 +53,7 @@ impl Config {
     /// Parse a config file and return a result.
     pub fn from_config_file(file: &Path) -> ConfigResult<Config> {
         // attempt to parse configuration file
-        let mut cfg = try!(parse_config_file(file));
+        let mut cfg = parse_config_file(file)?;
 
         let mut id_mapping = Vec::new();
 
@@ -79,12 +71,10 @@ impl Config {
         // get the set of Timers
         let timers = if let Some(Value::Table(timers)) = cfg.remove("timers") {
             let mut ts = Vec::with_capacity(timers.len());
-            let mut id = 0;
 
-            for (name, timer) in timers {
+            for (id, (name, timer)) in timers.into_iter().enumerate() {
                 id_mapping.push(name.clone());
-                ts.push(try!(Timer::from_config(name, id, timer)));
-                id += 1;
+                ts.push(Timer::from_config(name, id, timer)?);
             }
 
             ts
@@ -99,7 +89,7 @@ impl Config {
 
             for (name, fifo) in fifos {
                 id_mapping.push(name.clone());
-                fs.push(try!(Fifo::from_config(name.clone(), id, fifo)));
+                fs.push(Fifo::from_config(name.clone(), id, fifo)?);
                 id += 1;
             }
 
@@ -119,7 +109,7 @@ impl Config {
 
     /// Run with the given configuration.
     ///
-    /// Create a MPSC channel passed to each thread spawned, each
+    /// Create an MPSC channel passed to each thread spawned, each
     /// representing one of the entries (which is either FIFO or timer).
     /// The messages get merged into the buffer and the modified contents
     /// get stored.
@@ -144,7 +134,7 @@ impl Config {
             }
 
             if let Err(e) = format.render(&mut stdout(), &last_input_results) {
-                err!("mustache error: {}", e);
+                eprintln!("mustache error: {}", e);
             }
         }
     }
@@ -298,8 +288,8 @@ impl Timer {
 
             match output.status.code() {
                 Some(0) => (),
-                Some(c) => err!("process \"{}\" exited with code {}", self.command, c),
-                None => err!("process \"{}\" got killed by signal", self.command),
+                Some(c) => eprintln!("process \"{}\" exited with code {}", self.command, c),
+                None => eprintln!("process \"{}\" got killed by signal", self.command),
             }
         }
     }
@@ -359,9 +349,9 @@ impl TimerSet {
         // However, this could also increase visible latency and memory usage.
         for timer in &self.timers {
             heap.push(Entry {
-                          time: start_time,
-                          timer: timer,
-                      });
+                time: start_time,
+                timer,
+            });
         }
 
         while let Some(Entry { time, timer }) = heap.pop() {
@@ -377,22 +367,22 @@ impl TimerSet {
                 if next > sys_now {
                     match (next - sys_now).to_std() {
                         Ok(duration) => thread::sleep(duration),
-                        Err(e) => err!("error: sleep failed: {}", e),
+                        Err(e) => eprintln!("error: sleep failed: {}", e),
                     }
                 }
 
                 heap.push(Entry {
-                              time: time + timer.period,
-                              timer: timer,
-                          });
+                    time: time + timer.period,
+                    timer,
+                });
             } else {
                 let max_next = sys_now.sec + period;
                 let next = Timespec::new(max_next - (max_next % period as i64), 0);
 
                 heap.push(Entry {
-                              time: time + (next - sys_now),
-                              timer: timer,
-                          });
+                    time: time + (next - sys_now),
+                    timer,
+                });
             }
 
             timer.execute(&tx);
@@ -416,7 +406,7 @@ impl Fifo {
     fn from_config(name: String, id: usize, config: Value) -> ConfigResult<Fifo> {
         if let Value::Table(mut table) = config {
             let path = if let Some(&Value::String(ref c)) = table.get("fifo_path") {
-                try!(parse_path(c))
+                parse_path(c)?
             } else {
                 return Err(ConfigError::Missing(name, Some("fifo_path")));
             };
@@ -456,8 +446,10 @@ impl FifoSet {
                 fds.push(poll::setup_pollfd(&f));
                 buffers.push(FileBuffer(BufReader::new(f), fifo.id));
             } else {
-                err!("either a non-FIFO file {:?} exits, or it can't be created",
-                     fifo.path);
+                eprintln!(
+                    "either a non-FIFO file {:?} exits, or it can't be created",
+                    fifo.path
+                );
                 exit(1);
             }
         }
