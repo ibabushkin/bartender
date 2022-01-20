@@ -8,7 +8,6 @@ use getopts::Options;
 use pledge::{pledge, Promise, ToPromiseString};
 
 use std::env;
-use std::io::Write;
 use std::path::Path;
 use std::process::exit;
 
