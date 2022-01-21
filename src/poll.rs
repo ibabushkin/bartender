@@ -1,11 +1,10 @@
 use libc;
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::os::unix::io::AsRawFd;
 
 /// Set up a file to use with `poll`.
-pub fn setup_pollfd(fd: &File) -> libc::pollfd {
+pub fn setup_pollfd(fd: &impl AsRawFd) -> libc::pollfd {
     libc::pollfd {
         fd: fd.as_raw_fd(),
         events: libc::POLLIN,
@@ -21,13 +20,16 @@ pub fn poll(fds: &mut [libc::pollfd]) -> bool {
 
 /// A wrapped `BufReader` only yielding complete lines, annotated with
 /// an index.
-pub struct FileBuffer(pub BufReader<File>, pub usize);
+pub struct FileBuffer<R: Read>(pub BufReader<R>, pub usize);
 
 /// Message type sent through our channels.
 pub type Message = Vec<(usize, String)>;
 
-/// Fill some buffers from a set of previously `poll`ed filedsecriptors.
-pub fn get_lines(fds: &[libc::pollfd], buffers: &mut [FileBuffer]) -> Message {
+/// Fill some buffers from a set of previously `poll`ed filedescriptors.
+pub fn get_lines<R: AsRawFd + Read>(
+    fds: &[libc::pollfd],
+    buffers: &mut [FileBuffer<R>],
+) -> Message {
     let fd_len = fds.len();
     let mut res = Vec::with_capacity(fd_len);
     for (fd, &mut FileBuffer(ref mut reader, ref id)) in fds.iter().zip(buffers) {

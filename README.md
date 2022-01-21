@@ -21,10 +21,14 @@ needs.
 ## How?
 `bartender` reads a simple configuration file from `~/.bartenderrc` or a custom
 path passed as a command line parameter, and spawns threads to perform the
-actions necessary (namely, either spawn a script each `n` seconds or read
-linewise from a `FIFO` in the filesystem). These two facilities allow for both
-synchronous (timers) and asynchronous (lines coming from a `FIFO`) input that
-gets passed to a simple formatting object and printed to `stdout` on updates.
+actions necessary. Namely:
+- spawn a script each `n` seconds
+- read linewise from a `FIFO` in the filesystem
+- spawn a command and read linewise from its stdout
+
+These facilities allow for both synchronous (timers) and asynchronous (lines
+coming from a process or `FIFO`) input that gets passed to a simple formatting
+object and printed to `stdout` on updates.
 
 ## Examples?
 Sure. Here is a `~/.bartenderrc`, which is in TOML format and uses
@@ -39,6 +43,7 @@ format = """
 {{^ fifo_entry }} {{! a way of implementing default values in-template }}
 some value
 {{/ fifo_entry }}
+{{mqtt_news}}
  - and some static stuff
 """
 
@@ -55,6 +60,9 @@ command = "date +%F"
 [fifos.fifo_entry]
 fifo_path = "~/tmp/entry_b_fifo"
 default = "some default string" # another way of specifying defaults
+
+[process.mqtt_news]
+command = "mosquitto_sub -h host -t news/breaking"
 ```
 
 Let's split it up and look how it functions. The config file *has* to define a

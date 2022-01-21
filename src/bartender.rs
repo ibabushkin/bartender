@@ -20,15 +20,15 @@ use std::collections::HashMap;
 use std::env::home_dir;
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, Error as IoError, stdout};
 use std::io::prelude::*;
+use std::io::{stdout, BufReader, Error as IoError};
 use std::path::{Path, PathBuf};
-use std::process::{Command, exit};
+use std::process::{exit, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
 // timer stuff
-use time::{Duration, SteadyTime, Timespec, get_time};
+use time::{get_time, Duration, SteadyTime, Timespec};
 
 // config parsing machinery
 use toml;
@@ -45,6 +45,8 @@ pub struct Config {
     timers: TimerSet,
     /// All FIFO sources.
     fifos: FifoSet,
+    /// All long-running process sources.
+    processes: ProcessSet,
     /// A mapping from index to input name.
     id_mapping: Vec<String>,
 }
@@ -98,13 +100,30 @@ impl Config {
             Vec::new()
         };
 
+        // get the set of processes
+        let processes = if let Some(Value::Table(processes)) = cfg.remove("processes") {
+            let mut fs = Vec::with_capacity(processes.len());
+            let mut id = timers.len();
+
+            for (name, process) in processes {
+                id_mapping.push(name.clone());
+                fs.push(Process::from_config(name.clone(), id, process)?);
+                id += 1;
+            }
+
+            fs
+        } else {
+            Vec::new()
+        };
+
         // return the results
         Ok(Config {
-               format: template,
-               timers: TimerSet { timers },
-               fifos: FifoSet { fifos },
-               id_mapping,
-           })
+            format: template,
+            timers: TimerSet { timers },
+            fifos: FifoSet { fifos },
+            processes: ProcessSet { processes },
+            id_mapping,
+        })
     }
 
     /// Run with the given configuration.
@@ -115,18 +134,29 @@ impl Config {
     /// get stored.
     pub fn run(self) {
         let (tx, rx) = mpsc::channel();
-        let tx2 = tx.clone();
         let Config {
             format,
             timers,
             fifos,
+            processes,
             id_mapping,
         } = self;
         let mut last_input_results = HashMap::new();
 
-        thread::spawn(move || { timers.run(tx); });
+        let tx2 = tx.clone();
+        thread::spawn(move || {
+            timers.run(tx2);
+        });
 
-        thread::spawn(move || { fifos.run(tx2); });
+        let tx3 = tx.clone();
+        thread::spawn(move || {
+            fifos.run(tx3);
+        });
+
+        let tx4 = tx.clone();
+        thread::spawn(move || {
+            processes.run(tx4);
+        });
 
         for updates in rx.iter() {
             for (id, value) in updates {
@@ -170,17 +200,20 @@ impl fmt::Display for ConfigError {
             ConfigError::MissingFormat => write!(f, "no `format` list found"),
             ConfigError::MustacheError(ref err) => write!(f, "format could not be parsed: {}", err),
             ConfigError::Missing(ref name, Some(sub)) => {
-                write!(f,
-                       "entity `{}` is missing child `{}` \
+                write!(
+                    f,
+                    "entity `{}` is missing child `{}` \
                        (or it has the wrong type)",
-                       name,
-                       sub)
+                    name, sub
+                )
             }
             ConfigError::Missing(ref name, None) => {
-                write!(f,
-                       "entity `{}` is missing \
+                write!(
+                    f,
+                    "entity `{}` is missing \
                        (or it has the wrong type)",
-                       name)
+                    name
+                )
             }
             ConfigError::IllegalValues(ref name) => {
                 write!(f, "timer `{}` doesn't have a positive period", name)
@@ -202,12 +235,10 @@ fn parse_config_file(path: &Path) -> ConfigResult<Table> {
 
             file.read_to_string(&mut content)
                 .map_err(ConfigError::IOError)
-                .and_then(|_| {
-                    match content.parse::<Value>() {
-                        Ok(Value::Table(value)) => Ok(value),
-                        Ok(_) => Err(ConfigError::TomlNotTable),
-                        Err(err) => Err(ConfigError::TomlError(err)),
-                    }
+                .and_then(|_| match content.parse::<Value>() {
+                    Ok(Value::Table(value)) => Ok(value),
+                    Ok(_) => Err(ConfigError::TomlNotTable),
+                    Err(err) => Err(ConfigError::TomlError(err)),
                 })
         })
 }
@@ -266,11 +297,15 @@ impl Timer {
                 return Err(ConfigError::Missing(name, Some("command")));
             };
 
-            let period = Duration::seconds(seconds) + Duration::minutes(minutes) +
-                         Duration::hours(hours);
+            let period =
+                Duration::seconds(seconds) + Duration::minutes(minutes) + Duration::hours(hours);
 
             if period > Duration::seconds(0) {
-                Ok(Timer { period, command, id })
+                Ok(Timer {
+                    period,
+                    command,
+                    id,
+                })
             } else {
                 Err(ConfigError::IllegalValues(name))
             }
@@ -452,6 +487,89 @@ impl FifoSet {
                 );
                 exit(1);
             }
+        }
+
+        drop(self);
+
+        while poll::poll(&mut fds) {
+            let _ = tx.send(poll::get_lines(&fds, &mut buffers));
+        }
+    }
+}
+
+/// A process source.
+#[derive(Debug)]
+struct Process {
+    /// The command to start the process with.
+    command: String,
+    /// The output destination of the process.
+    id: usize,
+    /// Default value used.
+    default: Option<String>,
+}
+
+impl Process {
+    /// Parse a Process from a config structure.
+    fn from_config(name: String, id: usize, config: Value) -> ConfigResult<Process> {
+        if let Value::Table(mut table) = config {
+            let command = if let Some(Value::String(c)) = table.remove("command") {
+                c
+            } else {
+                return Err(ConfigError::Missing(name, Some("command")));
+            };
+
+            let default = if let Some(Value::String(d)) = table.remove("default") {
+                Some(d)
+            } else {
+                None
+            };
+
+            Ok(Process {
+                command,
+                id,
+                default,
+            })
+        } else {
+            Err(ConfigError::Missing(name, None))
+        }
+    }
+
+    fn run(&self, tx: &mpsc::Sender<Message>) -> ChildStdout {
+        let command = self.command.as_str();
+        let child = Command::new("sh")
+            .args(&["-c", command])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|_| panic!("Failed to start child command {command}"));
+        if let Some(f) = child.stdout {
+            if let Some(default) = &self.default {
+                let _ = tx.send(vec![(self.id, default.clone())]);
+            }
+            return f;
+        } else {
+            eprintln!("could not get stdout from command {:?}", self.command);
+            exit(1);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProcessSet {
+    /// The actual FIFOs and some info to direct their output.
+    processes: Vec<Process>,
+}
+
+impl ProcessSet {
+    /// Run a worker thread handling processes.
+    pub fn run(mut self, tx: mpsc::Sender<Message>) {
+        let len = self.processes.len();
+        let mut fds = Vec::with_capacity(len);
+        let mut buffers = Vec::with_capacity(len);
+
+        for process in self.processes.drain(..) {
+            let stdout = process.run(&tx);
+            fds.push(poll::setup_pollfd(&stdout));
+            buffers.push(FileBuffer(BufReader::new(stdout), process.id));
         }
 
         drop(self);
